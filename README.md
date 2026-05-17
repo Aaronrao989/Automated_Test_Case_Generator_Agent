@@ -1,4 +1,4 @@
-# 🧪 Automated Test Case Generator Agent
+#  Automated Test Case Generator Agent
 
 > **Capgemini Exceller AgentifAI Buildathon** · Team **Osaka Vise**
 
