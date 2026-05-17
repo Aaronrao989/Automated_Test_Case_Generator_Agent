@@ -109,6 +109,11 @@ class TestGenerationOrchestrator:
             f"temp_code.{extension}"
         )
 
+        os.makedirs(
+            self.generated_tests_dir,
+            exist_ok=True
+        )
+
         with open(
             temp_source_path,
             "w",
@@ -116,6 +121,11 @@ class TestGenerationOrchestrator:
         ) as f:
 
             f.write(source_code)
+
+        print(
+            f"[TEMP SOURCE SAVED] "
+            f"{temp_source_path}"
+        )
 
         return temp_source_path
 
@@ -316,29 +326,6 @@ class TestGenerationOrchestrator:
         }
 
     # ==========================================================
-    # MODULE IMPORT
-    # ==========================================================
-
-    def _build_module_import(
-        self,
-        file_path: str
-    ) -> str:
-
-        module_path = (
-            file_path
-            .replace("/", ".")
-            .replace("\\", ".")
-        )
-
-        module_path = re.sub(
-            r"\.(py|js|ts)$",
-            "",
-            module_path
-        )
-
-        return module_path
-
-    # ==========================================================
     # FIX IMPORTS
     # ==========================================================
 
@@ -349,35 +336,31 @@ class TestGenerationOrchestrator:
         function_name: str = None
     ) -> str:
 
-        # Start with sys.path at the VERY TOP (first thing!)
         fixed_content = (
-            "import sys, os\n"
+            "import sys\n"
+            "import os\n\n"
             "sys.path.insert(0, os.path.dirname(__file__))\n\n"
+            "import pytest\n"
         )
 
-        # Then add pytest import
-        fixed_content += "import pytest\n"
-
-        # Then add function import if needed
         if function_name:
+
             fixed_content += (
                 f"from {module_name} "
-                f"import {function_name}\n"
+                f"import {function_name}\n\n"
             )
 
-        # Then add the actual test content (without duplicating imports)
         test_lines = test_content.strip().split("\n")
+
         filtered_lines = []
 
         for line in test_lines:
 
             stripped = line.strip()
 
-            # Skip import lines we've already added
             if (
                 stripped.startswith("import pytest")
                 or stripped.startswith("from temp_code import")
-                or stripped.startswith("from " + module_name)
                 or stripped.startswith("import sys")
                 or stripped.startswith("import os")
                 or stripped.startswith("sys.path")
@@ -389,7 +372,6 @@ class TestGenerationOrchestrator:
 
         fixed_content += "\n".join(filtered_lines)
 
-        # Replace placeholder imports
         replacements = [
             (
                 "from your_module import",
@@ -490,6 +472,10 @@ class TestGenerationOrchestrator:
                         test["content"]
                     )
 
+                print(
+                    f"[TEST SAVED] {file_path}"
+                )
+
                 saved_files.append(
                     file_path
                 )
@@ -522,9 +508,7 @@ class TestGenerationOrchestrator:
                 env = os.environ.copy()
 
                 env["PYTHONPATH"] = (
-                    os.getcwd()
-                    + os.pathsep
-                    + self.generated_tests_dir
+                    self.generated_tests_dir
                 )
 
                 process = subprocess.run(
@@ -532,11 +516,11 @@ class TestGenerationOrchestrator:
                         "python",
                         "-m",
                         "pytest",
-                        test_file,
+                        os.path.basename(test_file),
                         "-v",
                         "--tb=short"
                     ],
-                    cwd=os.getcwd(),
+                    cwd=self.generated_tests_dir,
                     env=env,
                     capture_output=True,
                     text=True,
@@ -626,6 +610,8 @@ class TestGenerationOrchestrator:
 
         functions_data = []
 
+        full_source_code = ""
+
         for file_path in files_to_analyze:
 
             full_path = os.path.join(
@@ -643,6 +629,10 @@ class TestGenerationOrchestrator:
                 ) as f:
 
                     content = f.read()
+
+                full_source_code += (
+                    "\n\n" + content
+                )
 
                 if (
                     len(content)
@@ -677,6 +667,11 @@ class TestGenerationOrchestrator:
             :self.MAX_FUNCTIONS_TO_ANALYZE
         ]
 
+        self._save_temp_source_code(
+            full_source_code,
+            "python"
+        )
+
         edge_cases_list = []
 
         for func in functions_data:
@@ -689,23 +684,11 @@ class TestGenerationOrchestrator:
                     )
                 )
 
-                print(
-                    f"[EDGE CASE] Processing "
-                    f"{func['name']} with "
-                    f"args: {func_info.get('args', [])}"
-                )
-
                 edge_cases = (
                     self.edge_case_finder.find_edge_cases(
                         func_info,
                         ""
                     )
-                )
-
-                print(
-                    f"[EDGE CASE] Found "
-                    f"{len(edge_cases)} cases for "
-                    f"{func['name']}"
                 )
 
                 edge_cases_list.extend(
@@ -714,13 +697,9 @@ class TestGenerationOrchestrator:
 
             except Exception as e:
 
-                import traceback
-
                 print(
                     f"[EDGE CASE ERROR] {e}"
                 )
-
-                print(traceback.format_exc())
 
         generated_tests = []
 
@@ -728,11 +707,7 @@ class TestGenerationOrchestrator:
 
             try:
 
-                module_name = (
-                    self._build_module_import(
-                        func["file"]
-                    )
-                )
+                module_name = "temp_code"
 
                 print(
                     f"[TEST GEN] Generating for "
@@ -747,11 +722,6 @@ class TestGenerationOrchestrator:
                     )
                 )
 
-                print(
-                    f"[TEST GEN] LLM returned "
-                    f"{len(llm_tests)} test(s)"
-                )
-
                 valid_tests = []
 
                 for test in llm_tests:
@@ -761,16 +731,7 @@ class TestGenerationOrchestrator:
                         ""
                     )
 
-                    print(
-                        f"[TEST GEN] Test content "
-                        f"length: {len(content)}"
-                    )
-
                     if not content:
-
-                        print(
-                            f"[TEST GEN] Empty content!"
-                        )
                         continue
 
                     content = (
@@ -796,20 +757,8 @@ class TestGenerationOrchestrator:
                             content
                         ):
 
-                            print(
-                                f"[TEST GEN] Test "
-                                f"validated OK"
-                            )
-
                             valid_tests.append(
                                 test
-                            )
-
-                        else:
-
-                            print(
-                                f"[TEST GEN] Test "
-                                f"validation failed"
                             )
 
                     else:
@@ -818,35 +767,15 @@ class TestGenerationOrchestrator:
                             test
                         )
 
-                print(
-                    f"[TEST GEN] Valid tests: "
-                    f"{len(valid_tests)}"
-                )
-
                 generated_tests.extend(
                     valid_tests
                 )
 
-                print(
-                    f"[TEST GEN] Total in "
-                    f"generated_tests: "
-                    f"{len(generated_tests)}"
-                )
-
             except Exception as e:
-
-                import traceback
 
                 print(
                     f"[TEST GENERATION ERROR] {e}"
                 )
-
-                print(traceback.format_exc())
-
-        print(
-            f"[ORCHESTRATOR] Before save: "
-            f"{len(generated_tests)} tests"
-        )
 
         saved_test_files = (
             self._save_generated_tests(
@@ -874,11 +803,6 @@ class TestGenerationOrchestrator:
                 "status": "error",
                 "message": str(e)
             }
-
-        print(
-            f"[ORCHESTRATOR] Returning "
-            f"{len(generated_tests)} tests"
-        )
 
         return {
 
@@ -1010,11 +934,6 @@ class TestGenerationOrchestrator:
         ) as f:
 
             f.write(source_code)
-
-        self._save_temp_source_code(
-            source_code,
-            language
-        )
 
         return self.analyze_repository(
             temp_dir
