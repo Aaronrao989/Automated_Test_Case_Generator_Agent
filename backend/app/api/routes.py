@@ -1,6 +1,7 @@
 import os
 import uuid
 import traceback
+
 from pathlib import Path
 
 from fastapi import (
@@ -9,7 +10,8 @@ from fastapi import (
     Depends,
     UploadFile,
     File,
-    status
+    status,
+    BackgroundTasks
 )
 
 from sqlalchemy.orm import Session
@@ -29,11 +31,11 @@ from app.schemas import (
     AnalysisJobResponse
 )
 
-from app.workers.tasks import (
-    analyze_repository_task
-)
-
 from app.core.config import settings
+
+from app.services.analysis_service import (
+    run_analysis
+)
 
 
 router = APIRouter(
@@ -106,6 +108,7 @@ def safe_remove_file(
 )
 async def start_analysis(
     request: AnalysisStartRequest,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db)
 ):
     """
@@ -172,36 +175,15 @@ async def start_analysis(
         db.refresh(job)
 
         # --------------------------------------------------
-        # RUN TASK DIRECTLY
+        # BACKGROUND TASK
         # --------------------------------------------------
 
-        try:
-
-            analyze_repository_task(
-                job_id,
-                source_type,
-                source_data
-            )
-
-        except Exception as analysis_error:
-
-            db.rollback()
-
-            job.status = JobStatus.FAILED
-
-            job.error_message = (
-                f"Analysis error: "
-                f"{str(analysis_error)}"
-            )
-
-            db.commit()
-
-            raise HTTPException(
-                status_code=500,
-                detail="Analysis failed"
-            )
-
-        db.refresh(job)
+        background_tasks.add_task(
+            run_analysis,
+            job_id,
+            source_type,
+            source_data
+        )
 
         return AnalysisJobResponse(
             job_id=job.id,
@@ -236,6 +218,7 @@ async def start_analysis(
     status_code=status.HTTP_202_ACCEPTED
 )
 async def upload_and_analyze(
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     db: Session = Depends(get_db)
 ):
@@ -356,38 +339,15 @@ async def upload_and_analyze(
         db.refresh(job)
 
         # --------------------------------------------------
-        # RUN TASK DIRECTLY
+        # BACKGROUND TASK
         # --------------------------------------------------
 
-        try:
-
-            analyze_repository_task(
-                job_id,
-                "zip_file",
-                saved_file_path
-            )
-
-        except Exception as analysis_error:
-
-            db.rollback()
-
-            job.status = JobStatus.FAILED
-
-            job.error_message = (
-                f"Analysis error: "
-                f"{str(analysis_error)}"
-            )
-
-            db.commit()
-
-            raise HTTPException(
-                status_code=500,
-                detail=(
-                    "ZIP analysis failed"
-                )
-            )
-
-        db.refresh(job)
+        background_tasks.add_task(
+            run_analysis,
+            job_id,
+            "zip_file",
+            saved_file_path
+        )
 
         return {
             "job_id": job.id,
@@ -396,7 +356,7 @@ async def upload_and_analyze(
                 job.created_at.isoformat()
             ),
             "message": (
-                "ZIP uploaded and analyzed successfully"
+                "ZIP uploaded successfully"
             )
         }
 
@@ -629,4 +589,21 @@ async def health_check():
         "llm_provider": (
             settings.llm_provider
         )
+    }
+
+
+# ==========================================================
+# API ROOT
+# ==========================================================
+
+@router.get("/")
+async def api_root():
+
+    return {
+        "message": (
+            "Automated Test "
+            "Case Generator API"
+        ),
+        "version": "1.0.0",
+        "status": "running"
     }
