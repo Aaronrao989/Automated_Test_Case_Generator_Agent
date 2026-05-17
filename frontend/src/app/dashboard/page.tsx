@@ -21,7 +21,7 @@ interface AnalysisResult {
 
   updated_at?: string;
 
-  source_type?: string;
+ source_type?: string;
 
   structure?: any;
 
@@ -31,6 +31,8 @@ interface AnalysisResult {
 
   tests?: any[];
 
+  test_results?: any[];
+
   coverage?: any;
 
   error?: string;
@@ -39,7 +41,8 @@ interface AnalysisResult {
 
 export default function DashboardPage() {
 
-  const [jobId, setJobId] = useState<string>('');
+  const [jobId, setJobId] =
+    useState<string>('');
 
   const [result, setResult] =
     useState<AnalysisResult | null>(null);
@@ -403,25 +406,254 @@ export default function DashboardPage() {
                 </div>
 
 
-                {/* RAW RESULT */}
+                {/* LANGUAGES */}
 
-                <div className="bg-slate-800/50 border border-slate-700 rounded-lg p-8">
+                {result.structure?.languages &&
+                  Object.keys(result.structure.languages).length > 0 && (
 
-                  <h4 className="text-xl font-bold text-white mb-4">
-                    Complete Analysis Result
-                  </h4>
+                    <div className="bg-slate-800/50 border border-slate-700 rounded-lg p-8">
 
-                  <pre className="bg-slate-900 rounded-lg p-4 text-slate-300 overflow-auto max-h-[700px] text-sm">
+                      <h4 className="text-xl font-bold text-white mb-4">
+                        Languages Detected
+                      </h4>
 
-                    {JSON.stringify(
-                      result,
-                      null,
-                      2
-                    )}
+                      <div className="grid md:grid-cols-3 gap-4">
 
-                  </pre>
+                        {Object.entries(
+                          result.structure.languages
+                        ).map(([lang, count]: any) => (
 
-                </div>
+                          <div
+                            key={lang}
+                            className="bg-slate-700/50 p-4 rounded-lg"
+                          >
+
+                            <p className="text-slate-300 capitalize">
+                              {lang}
+                            </p>
+
+                            <p className="text-2xl font-bold text-purple-300">
+                              {count}
+                            </p>
+
+                          </div>
+                        ))}
+
+                      </div>
+
+                    </div>
+                )}
+
+
+                {/* EDGE CASES */}
+
+                {result.edge_cases &&
+                  result.edge_cases.length > 0 && (
+
+                    <div className="bg-slate-800/50 border border-slate-700 rounded-lg p-8">
+
+                      <h4 className="text-xl font-bold text-white mb-4">
+                        Edge Cases Identified
+                      </h4>
+
+                      <div className="space-y-3 max-h-96 overflow-y-auto">
+
+                        {result.edge_cases.map(
+                          (edgeCase: any, idx: number) => (
+
+                            <div
+                              key={idx}
+                              className="bg-slate-700/50 p-4 rounded-lg border border-slate-600"
+                            >
+
+                              <p className="font-semibold text-orange-300 mb-2">
+
+                                {edgeCase.type}
+
+                              </p>
+
+                              <p className="text-sm text-slate-300">
+
+                                {edgeCase.description}
+
+                              </p>
+
+                            </div>
+                          )
+                        )}
+
+                      </div>
+
+                    </div>
+                )}
+
+
+                {/* GENERATED TESTS */}
+
+                {result.tests &&
+                  result.tests.length > 0 && (
+
+                    <div className="bg-slate-800/50 border border-slate-700 rounded-lg p-8">
+
+                      <h4 className="text-xl font-bold text-white mb-4">
+                        Generated Tests
+                      </h4>
+
+                      <div className="space-y-4 max-h-[700px] overflow-y-auto">
+
+                        {result.tests.map(
+                          (test: any, idx: number) => (
+
+                            <div
+                              key={idx}
+                              className="bg-slate-700/50 p-4 rounded-lg border border-slate-600"
+                            >
+
+                              <div className="flex items-center justify-between mb-3">
+
+                                <p className="font-semibold text-green-300">
+
+                                  {test.target_function}
+
+                                </p>
+
+                                <span className="text-xs bg-slate-600 px-2 py-1 rounded text-slate-200">
+
+                                  {test.test_type}
+
+                                </span>
+
+                              </div>
+
+                              <pre className="bg-slate-900 p-4 rounded text-xs text-slate-300 overflow-x-auto">
+
+                                {test.content}
+
+                              </pre>
+
+                            </div>
+                          )
+                        )}
+
+                      </div>
+
+                    </div>
+                )}
+
+
+                {/* TEST EXECUTION RESULTS */}
+
+                {result.test_results &&
+                  result.test_results.length > 0 && (
+
+                    <div className="bg-slate-800/50 border border-slate-700 rounded-lg p-8">
+
+                      <h4 className="text-xl font-bold text-white mb-4">
+                        Test Execution Results
+                      </h4>
+
+                      <div className="space-y-4">
+
+                        {result.test_results.map(
+                          (test: any, idx: number) => (
+
+                            <div
+                              key={idx}
+                              className="bg-slate-700/50 p-4 rounded-lg border border-slate-600"
+                            >
+
+                              <div className="flex items-center justify-between mb-2">
+
+                                <p className="text-sm text-slate-300 break-all">
+
+                                  {test.file}
+
+                                </p>
+
+                                <span
+                                  className={`px-3 py-1 rounded text-xs font-semibold ${
+                                    test.status === 'passed'
+                                      ? 'bg-green-500/20 text-green-300'
+                                      : 'bg-red-500/20 text-red-300'
+                                  }`}
+                                >
+
+                                  {test.status}
+
+                                </span>
+
+                              </div>
+
+                              <pre className="bg-slate-900 p-4 rounded text-xs text-slate-300 overflow-x-auto max-h-96">
+
+                                {test.output}
+
+                              </pre>
+
+                            </div>
+                          )
+                        )}
+
+                      </div>
+
+                    </div>
+                )}
+
+
+                {/* COVERAGE */}
+
+                {result.coverage && (
+
+                  <div className="bg-slate-800/50 border border-slate-700 rounded-lg p-8">
+
+                    <h4 className="text-xl font-bold text-white mb-4">
+                      Coverage Report
+                    </h4>
+
+                    <div className="mb-6 p-4 bg-slate-700/50 rounded-lg">
+
+                      <div className="flex items-center justify-between mb-2">
+
+                        <span className="text-slate-300">
+                          Total Coverage
+                        </span>
+
+                        <span className="text-2xl font-bold text-blue-300">
+
+                          {result.coverage.total_coverage?.toFixed(1)}%
+
+                        </span>
+
+                      </div>
+
+                      <div className="w-full bg-slate-600 rounded-full h-2">
+
+                        <div
+                          className="bg-blue-500 h-2 rounded-full"
+                          style={{
+                            width: `${Math.min(
+                              result.coverage.total_coverage || 0,
+                              100
+                            )}%`
+                          }}
+                        />
+
+                      </div>
+
+                    </div>
+
+                    <pre className="bg-slate-900 rounded-lg p-4 text-slate-300 overflow-auto max-h-96 text-sm">
+
+                      {JSON.stringify(
+                        result.coverage,
+                        null,
+                        2
+                      )}
+
+                    </pre>
+
+                  </div>
+                )}
 
               </div>
             )}
