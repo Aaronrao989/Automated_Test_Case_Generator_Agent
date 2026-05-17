@@ -19,6 +19,10 @@ from app.models import (
     JobStatus
 )
 
+from app.services.persistence import (
+    ResultsPersistenceService
+)
+
 from app.workers.celery_app import (
     celery_app
 )
@@ -252,6 +256,51 @@ def analyze_repository_task(
             )
 
         # ==================================================
+        # PERSIST ANALYSIS RESULTS TO DATABASE
+        # ==================================================
+
+        logger.info(
+            f"[Job {job_id}] "
+            f"Starting persistence..."
+        )
+
+        try:
+
+            persistence_service = (
+                ResultsPersistenceService(
+                    db=db,
+                    job_id=job_id
+                )
+            )
+
+            persistence_summary = (
+                persistence_service.persist_all_results(
+                    result
+                )
+            )
+
+            logger.info(
+                f"[Job {job_id}] "
+                f"Persistence returned successfully: "
+                f"{persistence_summary['totals']}"
+            )
+
+        except Exception as persist_error:
+
+            logger.error(
+                f"[Job {job_id}] "
+                f"Result persistence failed: "
+                f"{persist_error}"
+            )
+
+            logger.exception(persist_error)
+
+            raise
+
+        # Merge job object back into session since persistence service expunged cache
+        job = db.merge(job)
+
+        # ==================================================
         # REDUCE STORED PAYLOAD
         # ==================================================
 
@@ -272,6 +321,7 @@ def analyze_repository_task(
             "llm_provider": result.get(
                 "llm_provider"
             ),
+            "persistence": persistence_summary,
             "summary": {
                 "tests_generated": len(
                     result.get("tests", [])
