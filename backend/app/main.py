@@ -141,11 +141,24 @@ app.add_middleware(
     CORSMiddleware,
 
     allow_origins=[
+
+        # LOCALHOST
+
         "http://localhost:3000",
         "http://localhost:3001",
         "http://localhost:3002",
+
+        # LOCAL NETWORK
+
         "http://192.168.1.17:3002",
+
+        # RENDER BACKEND
+
         "https://automated-test-case-generator-agent.onrender.com",
+
+        # VERCEL FRONTEND
+
+        "https://automatedtestcasegeneratoragent.vercel.app",
     ],
 
     allow_credentials=True,
