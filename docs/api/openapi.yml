@@ -1,0 +1,82 @@
+openapi: 3.0.0
+info:
+  title: Automated Test Case Generator Agent API
+  version: 1.0.0
+  description: API for the Automated Test Case Generator Agent.
+
+paths:
+  /api/v1/analysis:
+    post:
+      summary: Start a new analysis job
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                url:
+                  type: string
+                  format: uri
+                  description: URL of the GitHub repository.
+                zip_file:
+                  type: string
+                  format: binary
+                  description: Uploaded codebase as a ZIP file.
+                text:
+                  type: string
+                  description: User story or requirement text.
+      responses:
+        '202':
+          description: Analysis job accepted.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  job_id:
+                    type: string
+  /api/v1/analysis/{job_id}:
+    get:
+      summary: Get analysis status and results
+      parameters:
+        - name: job_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Analysis result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnalysisResult'
+        '202':
+          description: Analysis is still in progress.
+
+components:
+  schemas:
+    AnalysisResult:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [PENDING, IN_PROGRESS, COMPLETED, FAILED]
+        structure:
+          type: object
+        tests:
+          type: array
+          items:
+            $ref: '#/components/schemas/TestFile'
+        coverage:
+          type: number
+          format: float
+
+    TestFile:
+      type: object
+      properties:
+        file_path:
+          type: string
+        content:
+          type: string
