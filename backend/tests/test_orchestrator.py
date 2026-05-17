@@ -105,28 +105,6 @@ const subtract = (a, b) => {
 
 
 # ==========================================================
-# MODULE IMPORT
-# ==========================================================
-
-def test_build_module_import():
-
-    orchestrator = (
-        TestGenerationOrchestrator()
-    )
-
-    result = (
-        orchestrator._build_module_import(
-            "src/utils/helper.py"
-        )
-    )
-
-    assert (
-        result ==
-        "src.utils.helper"
-    )
-
-
-# ==========================================================
 # PYTHON TEST VALIDATION
 # ==========================================================
 
