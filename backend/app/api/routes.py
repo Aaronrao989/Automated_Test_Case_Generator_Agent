@@ -172,34 +172,36 @@ async def start_analysis(
         db.refresh(job)
 
         # --------------------------------------------------
-        # QUEUE TASK
+        # RUN TASK DIRECTLY
         # --------------------------------------------------
 
         try:
 
-            analyze_repository_task.delay(
+            analyze_repository_task(
                 job_id,
                 source_type,
                 source_data
             )
 
-        except Exception as celery_error:
+        except Exception as analysis_error:
 
             db.rollback()
 
             job.status = JobStatus.FAILED
 
             job.error_message = (
-                f"Task queue error: "
-                f"{str(celery_error)}"
+                f"Analysis error: "
+                f"{str(analysis_error)}"
             )
 
             db.commit()
 
             raise HTTPException(
                 status_code=500,
-                detail="Failed to queue task"
+                detail="Analysis failed"
             )
+
+        db.refresh(job)
 
         return AnalysisJobResponse(
             job_id=job.id,
@@ -354,26 +356,26 @@ async def upload_and_analyze(
         db.refresh(job)
 
         # --------------------------------------------------
-        # QUEUE TASK
+        # RUN TASK DIRECTLY
         # --------------------------------------------------
 
         try:
 
-            analyze_repository_task.delay(
+            analyze_repository_task(
                 job_id,
                 "zip_file",
                 saved_file_path
             )
 
-        except Exception as celery_error:
+        except Exception as analysis_error:
 
             db.rollback()
 
             job.status = JobStatus.FAILED
 
             job.error_message = (
-                f"Task queue error: "
-                f"{str(celery_error)}"
+                f"Analysis error: "
+                f"{str(analysis_error)}"
             )
 
             db.commit()
@@ -381,9 +383,11 @@ async def upload_and_analyze(
             raise HTTPException(
                 status_code=500,
                 detail=(
-                    "Failed to queue ZIP analysis"
+                    "ZIP analysis failed"
                 )
             )
+
+        db.refresh(job)
 
         return {
             "job_id": job.id,
@@ -392,7 +396,7 @@ async def upload_and_analyze(
                 job.created_at.isoformat()
             ),
             "message": (
-                "ZIP uploaded successfully"
+                "ZIP uploaded and analyzed successfully"
             )
         }
 
