@@ -48,7 +48,7 @@ def initialize_database() -> None:
             "[Startup] Database tables created successfully"
         )
 
-    except Exception as e:
+    except Exception:
 
         logger.exception(
             "[Startup] Database initialization failed"
@@ -72,7 +72,9 @@ def check_database_connection() -> bool:
 
         with engine.connect() as connection:
 
-            connection.execute(text("SELECT 1"))
+            connection.execute(
+                text("SELECT 1")
+            )
 
         return True
 
@@ -135,14 +137,21 @@ app = FastAPI(
 # CORS CONFIG
 # ==========================================================
 
-# NOTE:
-# Replace "*" with frontend domains in production.
-
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+
+    allow_origins=[
+        "http://localhost:3000",
+        "http://localhost:3001",
+        "http://localhost:3002",
+        "http://192.168.1.17:3002",
+        "https://automated-test-case-generator-agent.onrender.com",
+    ],
+
     allow_credentials=True,
+
     allow_methods=["*"],
+
     allow_headers=["*"],
 )
 
@@ -165,8 +174,11 @@ async def read_root():
         "message": (
             "Welcome to the Automated Test Case Generator API"
         ),
+
         "status": "running",
+
         "version": "1.0.0",
+
         "llm_provider": settings.llm_provider
     }
 
