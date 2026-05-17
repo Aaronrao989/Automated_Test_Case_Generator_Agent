@@ -8,14 +8,21 @@ from sqlalchemy.orm import (
     declarative_base
 )
 
-from app.core.config import settings
+import os
 
 
 # ==========================================================
 # DATABASE URL
 # ==========================================================
 
-DATABASE_URL = settings.database_url
+# Priority:
+# 1. Environment variable
+# 2. SQLite fallback for local tests
+
+DATABASE_URL = os.getenv(
+    "DATABASE_URL",
+    "sqlite:///./test.db"
+)
 
 
 # ==========================================================
@@ -43,20 +50,43 @@ engine_kwargs = {
 # SQLITE CONFIG
 # ==========================================================
 
+connect_args = {}
+
 if DATABASE_URL.startswith("sqlite"):
 
+    connect_args = {
+        "check_same_thread": False
+    }
+
     engine_kwargs.update({
-        "connect_args": {
-            "check_same_thread": False
-        }
+        "connect_args": connect_args
     })
 
 
 # ==========================================================
-# POSTGRESQL CONFIG
+# SUPABASE / POSTGRES CONFIG
 # ==========================================================
 
-else:
+elif "supabase.com" in DATABASE_URL:
+
+    connect_args = {
+        "sslmode": "require"
+    }
+
+    engine_kwargs.update({
+        "connect_args": connect_args,
+        "pool_pre_ping": True,
+        "pool_size": 10,
+        "max_overflow": 20,
+        "pool_recycle": 3600
+    })
+
+
+# ==========================================================
+# LOCAL POSTGRES / DOCKER CONFIG
+# ==========================================================
+
+elif DATABASE_URL.startswith("postgresql"):
 
     engine_kwargs.update({
         "pool_pre_ping": True,
@@ -70,21 +100,11 @@ else:
 # CREATE ENGINE
 # ==========================================================
 
-# Build connect_args based on database type
-connect_args = {}
-
-if DATABASE_URL.startswith("postgresql"):
-    # PostgreSQL connection args
-    connect_args = {
-        "sslmode": "disable"  # Docker environment uses local network
-    }
-
 engine = create_engine(
     DATABASE_URL,
-    pool_pre_ping=True,
-    connect_args=connect_args,
-    echo=False
+    **engine_kwargs
 )
+
 
 # ==========================================================
 # SESSION FACTORY
@@ -137,6 +157,8 @@ def check_database_connection() -> bool:
 
         return True
 
-    except Exception:
+    except Exception as e:
+
+        print(f"Database connection failed: {e}")
 
         return False

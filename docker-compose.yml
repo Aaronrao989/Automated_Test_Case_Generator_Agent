@@ -6,7 +6,7 @@ services:
     volumes:
       - ./backend/app:/app/app
     environment:
-      - DATABASE_URL=postgresql://user:password@db:5432/appdb
+      - DATABASE_URL=postgresql://user:Osakavise9899@db:5432/appdb
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
     depends_on:
@@ -30,7 +30,7 @@ services:
     image: postgres:15
     environment:
       - POSTGRES_USER=user
-      - POSTGRES_PASSWORD=password
+      - POSTGRES_PASSWORD=Osakavise9899
       - POSTGRES_DB=appdb
     ports:
       - "15432:5432"
@@ -50,7 +50,7 @@ services:
     environment:
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
-      - DATABASE_URL=postgresql://user:password@db:5432/appdb
+      - DATABASE_URL=postgresql://user:Osakavise9899@db:5432/appdb
     depends_on:
       - backend
       - redis
