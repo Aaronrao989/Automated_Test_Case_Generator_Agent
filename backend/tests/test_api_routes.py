@@ -11,6 +11,19 @@ from fastapi.testclient import (
 
 from app.main import app
 
+from app.db.database import (
+    Base,
+    engine
+)
+
+
+# ==========================================================
+# TEST DATABASE SETUP
+# ==========================================================
+
+Base.metadata.create_all(
+    bind=engine
+)
 
 client = TestClient(app)
 
