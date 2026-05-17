@@ -81,18 +81,28 @@ class LLMTestGenerator:
 
             response = self._call_llm(prompt)
 
-            # Detect and handle truncation
+            # --------------------------------------------------
+            # HANDLE TRUNCATION
+            # --------------------------------------------------
+
             if self._detect_truncation(response):
+
                 print(
-                    f"[LLM] Detected truncated output. "
-                    f"Requesting continuation..."
+                    "[LLM] Detected truncated output. "
+                    "Requesting continuation..."
                 )
+
                 response = self._get_continuation(
                     response
                 )
+
                 print(
-                    f"[LLM] Complete test code generated"
+                    "[LLM] Complete test code generated"
                 )
+
+            # --------------------------------------------------
+            # CLEAN RESPONSE
+            # --------------------------------------------------
 
             cleaned = self._clean_code_response(
                 response
@@ -106,11 +116,25 @@ class LLMTestGenerator:
                 cleaned
             )
 
+            # --------------------------------------------------
+            # PYTHON VALIDATION
+            # --------------------------------------------------
+
             if language == "python":
 
                 cleaned = self._repair_python_code(
                     cleaned
                 )
+
+                if not self._is_valid_python(
+                    cleaned
+                ):
+
+                    cleaned = (
+                        self._repair_truncated_python(
+                            cleaned
+                        )
+                    )
 
                 if not self._is_valid_python(
                     cleaned
@@ -182,7 +206,9 @@ class LLMTestGenerator:
 
                         temperature=0.1,
 
-                        max_tokens=3500,
+                        # IMPORTANT:
+                        # Reduced to avoid 429 rate limits
+                        max_tokens=700,
 
                         messages=[
                             {
@@ -192,6 +218,10 @@ class LLMTestGenerator:
                         ]
                     )
                 )
+
+                # IMPORTANT:
+                # Prevent burst requests
+                time.sleep(2)
 
                 break
 
@@ -235,38 +265,81 @@ class LLMTestGenerator:
         chunk: str
     ) -> bool:
 
-        """Detect if LLM response is truncated (incomplete)"""
+        """
+        Detect incomplete/truncated LLM output.
+        """
 
         if not chunk:
+
             return False
 
-        is_truncated = False
-
-        # Check 1: Ends mid-word (incomplete identifier)
         stripped = chunk.strip()
-        if stripped and stripped[-1].isalnum() and not stripped.endswith(")"):
-            is_truncated = True
 
-        # Check 2: Incomplete function definition
-        if (stripped.endswith("def ") or (
-            "def test_" in stripped[-50:] and "(" not in stripped[-30:]
-        )):
-            is_truncated = True
+        # ----------------------------------------------
+        # BAD ENDINGS
+        # ----------------------------------------------
 
-        # Check 3: Incomplete assert or with statement
-        if (stripped.endswith(("assert ", "with ", "raise ")) or (
-            "pytest.raises" in stripped[-60:] and ")" not in stripped[-20:]
-        )):
-            is_truncated = True
+        bad_endings = [
 
-        # Check 4: Large chunk (likely truncated)
-        if len(chunk) > 3000:
-            is_truncated = True
+            "(",
+            "[",
+            "{",
+            ",",
+            ":",
+            "\\",
 
-        return is_truncated
+            "assert",
+
+            "with pytest.raises",
+
+            "result =",
+
+            "raise ",
+
+            "with ",
+
+            "assert "
+        ]
+
+        for ending in bad_endings:
+
+            if stripped.endswith(ending):
+
+                return True
+
+        # ----------------------------------------------
+        # MID IDENTIFIER
+        # ----------------------------------------------
+
+        if (
+            stripped
+            and stripped[-1].isalnum()
+            and not stripped.endswith(")")
+        ):
+
+            return True
+
+        # ----------------------------------------------
+        # INCOMPLETE DEF
+        # ----------------------------------------------
+
+        if (
+
+            stripped.endswith("def ")
+
+            or (
+
+                "def test_" in stripped[-50:]
+                and "(" not in stripped[-30:]
+            )
+        ):
+
+            return True
+
+        return False
 
     # ==========================================================
-    # GET CONTINUED LLM RESPONSE
+    # CONTINUATION
     # ==========================================================
 
     def _get_continuation(
@@ -274,23 +347,43 @@ class LLMTestGenerator:
         original_response: str
     ) -> str:
 
-        """Get continuation of truncated response"""
+        """
+        Continue truncated generation.
+        """
 
         prompt = (
-            "Continue generating the remaining pytest code. "
-            "Do not repeat previous code. "
-            "Generate complete, valid Python test code:\n\n"
-            f"Previous code:\n{original_response}"
+            "Continue generating the remaining "
+            "pytest code.\n\n"
+            "STRICT RULES:\n"
+            "- Do NOT repeat previous code\n"
+            "- Return ONLY executable code\n"
+            "- Finish incomplete tests\n\n"
+            f"Previous code:\n"
+            f"{original_response}"
         )
 
         try:
+
             continuation = self._call_llm(
                 prompt,
                 continuation=True
             )
-            return original_response + "\n" + continuation
+
+            combined = (
+                original_response
+                + "\n"
+                + continuation
+            )
+
+            # Prevent giant accidental output
+            return combined[:12000]
+
         except Exception as e:
-            print(f"[LLM] Continuation failed: {e}")
+
+            print(
+                f"[LLM] Continuation failed: {e}"
+            )
+
             return original_response
 
     # ==========================================================
@@ -307,6 +400,7 @@ class LLMTestGenerator:
             return ""
 
         replacements = [
+
             "```python",
             "```javascript",
             "```json",
@@ -610,7 +704,7 @@ STRICT RULES:
 - NO markdown
 - NO explanations
 - NO duplicate tests
-- Keep total tests under 12
+- Keep total tests under 10
 - Generate concise tests only
 - IMPORT EXACTLY:
 from temp_code import {function_name}
