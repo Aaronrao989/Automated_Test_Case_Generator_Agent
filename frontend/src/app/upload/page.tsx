@@ -2,103 +2,63 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { Upload, ArrowLeft, Loader } from 'lucide-react';
+
+import {
+  ArrowLeft,
+  Loader,
+  Copy,
+  Check,
+  Github,
+  Code2
+} from 'lucide-react';
+
 
 export default function UploadPage() {
 
-  const [file, setFile] = useState<File | null>(null);
-
   const [loading, setLoading] = useState(false);
 
-  const [jobId, setJobId] = useState<string | null>(null);
+  const [jobId, setJobId] =
+    useState<string | null>(null);
 
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] =
+    useState<string | null>(null);
 
+  const [copied, setCopied] =
+    useState(false);
 
-  // ==========================================================
-  // FILE CHANGE
-  // ==========================================================
-
-  const handleFileChange = (
-    e: React.ChangeEvent<HTMLInputElement>
-  ) => {
-
-    if (e.target.files) {
-
-      setFile(e.target.files[0]);
-
-      setError(null);
-    }
-  };
+  const [sourceType, setSourceType] =
+    useState('github_url');
 
 
   // ==========================================================
-  // ZIP FILE UPLOAD
+  // COPY JOB ID
   // ==========================================================
 
-  const handleSubmit = async (
-    e: React.FormEvent
-  ) => {
+  const copyJobId = async () => {
 
-    e.preventDefault();
-
-    if (!file) {
-
-      setError('Please select a file');
-
-      return;
-    }
-
-    setLoading(true);
-
-    setError(null);
+    if (!jobId) return;
 
     try {
 
-      const formData = new FormData();
+      await navigator.clipboard.writeText(jobId);
 
-      formData.append('file', file);
+      setCopied(true);
 
-      const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL}/api/v1/analysis/upload`,
-        {
-          method: 'POST',
-          body: formData,
-        }
-      );
+      setTimeout(() => {
 
-      if (!response.ok) {
+        setCopied(false);
 
-        const errorData = await response.json();
+      }, 2000);
 
-        throw new Error(
-          errorData.detail || 'Upload failed'
-        );
-      }
+    } catch {
 
-      const data = await response.json();
-
-      setJobId(data.job_id);
-
-      setFile(null);
-
-    } catch (err) {
-
-      setError(
-        err instanceof Error
-          ? err.message
-          : 'Upload failed'
-      );
-
-    } finally {
-
-      setLoading(false);
+      console.error('Copy failed');
     }
   };
 
 
   // ==========================================================
-  // URL / CODE / USER STORY SUBMIT
+  // URL / CODE SUBMIT
   // ==========================================================
 
   const handleUrlSubmit = async (
@@ -115,14 +75,14 @@ export default function UploadPage() {
       formData.get('url') as string
     )?.trim();
 
-    const sourceType = (
+    const selectedSourceType = (
       formData.get('source_type') as string
     );
 
     if (!url) {
 
       setError(
-        'Please enter a URL or description'
+        'Please enter a GitHub URL or code snippet'
       );
 
       return;
@@ -145,7 +105,7 @@ export default function UploadPage() {
 
           body: JSON.stringify({
 
-            source_type: sourceType,
+            source_type: selectedSourceType,
 
             source_data: url,
           }),
@@ -154,12 +114,14 @@ export default function UploadPage() {
 
       if (!response.ok) {
 
-        const errorData = await response.json();
+        const errorData =
+          await response.json();
 
         console.error(errorData);
 
         throw new Error(
-          errorData.detail || 'Analysis start failed'
+          errorData.detail ||
+          'Analysis start failed'
         );
       }
 
@@ -170,6 +132,7 @@ export default function UploadPage() {
     } catch (err) {
 
       setError(
+
         err instanceof Error
           ? err.message
           : 'Failed to start analysis'
@@ -200,12 +163,15 @@ export default function UploadPage() {
             href="/"
             className="flex items-center gap-2 text-slate-300 hover:text-white"
           >
+
             <ArrowLeft size={20} />
+
             Back
+
           </Link>
 
           <h2 className="text-2xl font-bold text-white">
-            Upload Repository
+            Repository Analysis
           </h2>
 
         </div>
@@ -223,23 +189,62 @@ export default function UploadPage() {
               ✓ Analysis Started!
             </h2>
 
-            <p className="text-slate-300 mb-6">
 
-              Your analysis job has been created.
+            <div className="text-slate-300 mb-6">
 
-              <br />
+              <p className="mb-4">
+                Your analysis job has been created successfully.
+              </p>
 
-              Job ID:
+              <div className="flex items-center justify-center gap-3 flex-wrap">
 
-              <code className="bg-slate-800 px-3 py-1 rounded ml-2">
-                {jobId}
-              </code>
+                <span className="text-slate-400">
+                  Job ID:
+                </span>
 
-            </p>
+                <code className="bg-slate-800 px-3 py-2 rounded border border-slate-700 text-green-300">
 
-            <p className="text-slate-400 mb-6">
-              Analysis is processing.
-            </p>
+                  {jobId}
+
+                </code>
+
+                <button
+                  onClick={copyJobId}
+                  className="flex items-center gap-2 px-3 py-2 bg-purple-600 hover:bg-purple-700 rounded-lg text-white transition"
+                >
+
+                  {copied ? (
+                    <>
+                      <Check size={16} />
+                      Copied
+                    </>
+                  ) : (
+                    <>
+                      <Copy size={16} />
+                      Copy
+                    </>
+                  )}
+
+                </button>
+
+              </div>
+
+            </div>
+
+
+            <div className="mb-6">
+
+              <p className="text-slate-400 mb-2">
+                Analysis is processing.
+              </p>
+
+              <p className="text-sm text-slate-500">
+                Copy the Job ID and paste it into the Dashboard
+                to track analysis results.
+              </p>
+
+            </div>
+
 
             <div className="flex gap-4 justify-center">
 
@@ -247,14 +252,24 @@ export default function UploadPage() {
                 href="/dashboard"
                 className="px-6 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition"
               >
+
                 View Dashboard
+
               </Link>
 
               <button
-                onClick={() => setJobId(null)}
+                onClick={() => {
+
+                  setJobId(null);
+
+                  setError(null);
+                }}
+
                 className="px-6 py-2 border border-purple-600 text-purple-400 hover:bg-purple-600/10 rounded-lg transition"
               >
-                Upload Another
+
+                Analyze Another
+
               </button>
 
             </div>
@@ -263,95 +278,16 @@ export default function UploadPage() {
 
         ) : (
 
-          <div className="grid md:grid-cols-2 gap-8">
+          <div className="max-w-3xl mx-auto">
 
-            {/* FILE UPLOAD */}
-
-            <div className="bg-slate-800/50 border border-slate-700 rounded-lg p-8">
-
-              <h3 className="text-xl font-bold text-white mb-6 flex items-center gap-2">
-
-                <Upload
-                  size={24}
-                  className="text-purple-400"
-                />
-
-                Upload ZIP File
-
-              </h3>
-
-              <form
-                onSubmit={handleSubmit}
-                className="space-y-4"
-              >
-
-                <div className="border-2 border-dashed border-slate-600 rounded-lg p-8 text-center hover:border-purple-500 transition cursor-pointer">
-
-                  <input
-                    type="file"
-                    accept=".zip"
-                    onChange={handleFileChange}
-                    className="hidden"
-                    id="file-input"
-                  />
-
-                  <label
-                    htmlFor="file-input"
-                    className="cursor-pointer"
-                  >
-
-                    <div className="text-slate-400">
-
-                      <p className="text-lg font-semibold text-white mb-2">
-
-                        {file
-                          ? file.name
-                          : 'Click to upload or drag and drop'}
-
-                      </p>
-
-                      <p className="text-sm">
-                        ZIP files only (Max 100MB)
-                      </p>
-
-                    </div>
-
-                  </label>
-
-                </div>
-
-                <button
-                  type="submit"
-                  disabled={!file || loading}
-                  className="w-full py-3 bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white font-semibold rounded-lg transition flex items-center justify-center gap-2"
-                >
-
-                  {loading ? (
-                    <>
-                      <Loader
-                        size={20}
-                        className="animate-spin"
-                      />
-                      Uploading...
-                    </>
-                  ) : (
-                    'Upload & Analyze'
-                  )}
-
-                </button>
-
-              </form>
-
-            </div>
-
-
-            {/* URL / STORY / CODE */}
+            {/* URL / CODE */}
 
             <div className="bg-slate-800/50 border border-slate-700 rounded-lg p-8">
 
               <h3 className="text-xl font-bold text-white mb-6">
-                Repository / Prompt Input
+                Repository / Code Input
               </h3>
+
 
               <form
                 onSubmit={handleUrlSubmit}
@@ -361,25 +297,35 @@ export default function UploadPage() {
                 <div>
 
                   <label className="block text-sm font-medium text-slate-300 mb-2">
-                    Repository Type
+
+                    Analysis Type
+
                   </label>
 
                   <select
                     name="source_type"
-                    defaultValue="github_url"
+
+                    value={sourceType}
+
+                    onChange={(e) =>
+                      setSourceType(
+                        e.target.value
+                      )
+                    }
+
                     className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-purple-500"
                   >
 
                     <option value="github_url">
-                      GitHub URL
-                    </option>
 
-                    <option value="user_story">
-                      User Story / Specification
+                      GitHub Repository URL
+
                     </option>
 
                     <option value="code_snippet">
-                      Code Snippet
+
+                      Source Code Snippet
+
                     </option>
 
                   </select>
@@ -390,21 +336,56 @@ export default function UploadPage() {
                 <div>
 
                   <label className="block text-sm font-medium text-slate-300 mb-2">
-                    Enter URL or Description
+
+                    Enter Repository URL or Source Code
+
                   </label>
 
                   <textarea
                     name="url"
-                    placeholder="e.g., https://github.com/pallets/flask"
-                    className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-purple-500 h-32 resize-none"
+
+                    placeholder={
+                      sourceType === 'github_url'
+                        ? 'e.g., https://github.com/username/repository'
+                        : 'Paste your Python, JavaScript, or TypeScript code here'
+                    }
+
+                    className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-purple-500 h-40 resize-none"
                   />
+
+
+                  {sourceType === 'github_url' ? (
+
+                    <p className="mt-2 text-sm text-slate-400 flex items-center gap-2">
+
+                      <Github size={14} />
+
+                      Expected format:
+                      https://github.com/username/repository
+
+                    </p>
+
+                  ) : (
+
+                    <p className="mt-2 text-sm text-slate-400 flex items-center gap-2">
+
+                      <Code2 size={14} />
+
+                      Supported formats:
+                      Python, JavaScript, and TypeScript
+
+                    </p>
+
+                  )}
 
                 </div>
 
 
                 <button
                   type="submit"
+
                   disabled={loading}
+
                   className="w-full py-3 bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white font-semibold rounded-lg transition flex items-center justify-center gap-2"
                 >
 
@@ -414,6 +395,7 @@ export default function UploadPage() {
                         size={20}
                         className="animate-spin"
                       />
+
                       Starting Analysis...
                     </>
                   ) : (
