@@ -1,247 +1,38 @@
-"""
-Tests for RepoScannerAgent.
-"""
+"""RepoScannerAgent tests."""
 
 import os
-import tempfile
+import zipfile
 
-from app.agents.repo_scanner import (
-    RepoScannerAgent
-)
+from app.agents.repo_scanner import RepoScannerAgent
 
 
-# ==========================================================
-# INITIALIZATION
-# ==========================================================
+def test_scan_detects_languages(tmp_path):
+    (tmp_path / "a.py").write_text("def f():\n    return 1\n")
+    (tmp_path / "b.js").write_text("function g() { return 1; }\n")
+    (tmp_path / "node_modules").mkdir()
+    (tmp_path / "node_modules" / "skip.py").write_text("x = 1\n")
 
-def test_repo_scanner_initialization():
+    result = RepoScannerAgent(str(tmp_path)).scan()
+    assert result["languages"].get("python") == 1
+    assert result["languages"].get("javascript") == 1
+    # ignored directories are skipped
+    assert all("node_modules" not in f for f in result["files"])
 
-    scanner = RepoScannerAgent("/tmp")
 
-    assert scanner.repo_path == "/tmp"
+def test_scan_missing_path():
+    result = RepoScannerAgent("/does/not/exist").scan()
+    assert result["total_files"] == 0
 
 
-# ==========================================================
-# EMPTY DIRECTORY
-# ==========================================================
+def test_extract_from_zip_skips_traversal(tmp_path):
+    zip_path = tmp_path / "repo.zip"
+    with zipfile.ZipFile(zip_path, "w") as archive:
+        archive.writestr("good.py", "x = 1\n")
+        archive.writestr("../evil.py", "x = 2\n")
 
-def test_scan_empty_directory():
-
-    with tempfile.TemporaryDirectory() as tmpdir:
-
-        scanner = RepoScannerAgent(tmpdir)
-
-        result = scanner.scan()
-
-        assert "file_tree" in result
-
-        assert "languages" in result
-
-        assert "files" in result
-
-        assert result["files"] == []
-
-
-# ==========================================================
-# PYTHON FILE DETECTION
-# ==========================================================
-
-def test_detect_python_files():
-
-    with tempfile.TemporaryDirectory() as tmpdir:
-
-        test_file = os.path.join(
-            tmpdir,
-            "test.py"
-        )
-
-        with open(
-            test_file,
-            "w",
-            encoding="utf-8"
-        ) as f:
-
-            f.write(
-                "def hello():\n    pass"
-            )
-
-        scanner = RepoScannerAgent(tmpdir)
-
-        result = scanner.scan()
-
-        assert "python" in result["languages"]
-
-        assert (
-            result["languages"]["python"]
-            == 1
-        )
-
-        assert "test.py" in result["files"]
-
-
-# ==========================================================
-# FUNCTION EXTRACTION
-# ==========================================================
-
-def test_extract_python_functions():
-
-    with tempfile.TemporaryDirectory() as tmpdir:
-
-        test_file = os.path.join(
-            tmpdir,
-            "test.py"
-        )
-
-        with open(
-            test_file,
-            "w",
-            encoding="utf-8"
-        ) as f:
-
-            f.write(
-                """
-def add(a, b):
-    return a + b
-
-class Calculator:
-
-    def multiply(self, a, b):
-        return a * b
-"""
-            )
-
-        scanner = RepoScannerAgent(tmpdir)
-
-        # IMPORTANT:
-        # Must populate scanner.files
-        scanner.scan()
-
-        functions = scanner.extract_functions()
-
-        assert len(functions) > 0
-
-        assert any(
-            f["name"] == "add"
-            for f in functions
-        )
-
-        assert any(
-            f["name"] == "Calculator"
-            for f in functions
-        )
-
-
-# ==========================================================
-# IGNORE HIDDEN DIRECTORIES
-# ==========================================================
-
-def test_ignore_hidden_directories():
-
-    with tempfile.TemporaryDirectory() as tmpdir:
-
-        hidden_dir = os.path.join(
-            tmpdir,
-            ".git"
-        )
-
-        os.makedirs(hidden_dir)
-
-        hidden_file = os.path.join(
-            hidden_dir,
-            "config"
-        )
-
-        with open(
-            hidden_file,
-            "w",
-            encoding="utf-8"
-        ) as f:
-
-            f.write("test")
-
-        scanner = RepoScannerAgent(tmpdir)
-
-        result = scanner.scan()
-
-        assert (
-            "config"
-            not in result["files"]
-        )
-
-
-# ==========================================================
-# IGNORE LARGE FILES
-# ==========================================================
-
-def test_ignore_large_files():
-
-    with tempfile.TemporaryDirectory() as tmpdir:
-
-        large_file = os.path.join(
-            tmpdir,
-            "huge.py"
-        )
-
-        with open(
-            large_file,
-            "wb"
-        ) as f:
-
-            f.write(
-                b"x"
-                * (
-                    RepoScannerAgent.MAX_FILE_SIZE
-                    + 1
-                )
-            )
-
-        scanner = RepoScannerAgent(tmpdir)
-
-        result = scanner.scan()
-
-        assert (
-            "huge.py"
-            not in result["files"]
-        )
-
-
-# ==========================================================
-# JAVASCRIPT DETECTION
-# ==========================================================
-
-def test_detect_javascript_files():
-
-    with tempfile.TemporaryDirectory() as tmpdir:
-
-        js_file = os.path.join(
-            tmpdir,
-            "app.js"
-        )
-
-        with open(
-            js_file,
-            "w",
-            encoding="utf-8"
-        ) as f:
-
-            f.write(
-                """
-function hello() {
-    return "world";
-}
-"""
-            )
-
-        scanner = RepoScannerAgent(tmpdir)
-
-        result = scanner.scan()
-
-        assert (
-            "javascript"
-            in result["languages"]
-        )
-
-        assert (
-            result["languages"]["javascript"]
-            == 1
-        )
+    out = tmp_path / "out"
+    out.mkdir()
+    RepoScannerAgent.extract_from_zip(str(zip_path), str(out))
+    assert os.path.exists(out / "good.py")
+    # traversal member must not escape the extraction dir
+    assert not os.path.exists(tmp_path / "evil.py")

@@ -1,940 +1,345 @@
-import uuid
-import re
+"""Test-generation pipeline.
+
+Every job runs inside its own :class:`tempfile.TemporaryDirectory`, so
+concurrent jobs never share state and all scratch files are cleaned up
+automatically. Generated tests are executed exactly once, and coverage is
+collected from that same run. Progress is reported through an ``on_stage``
+callback so the frontend can show live status.
+"""
+
 import ast
+import logging
 import os
-import time
-import tempfile
+import re
 import subprocess
+import tempfile
+import urllib.parse
+from typing import Any, Callable, Dict, List, Optional
 
-from typing import Dict, List, Any
-
-from app.agents.repo_scanner import RepoScannerAgent
-from app.agents.code_understanding import CodeUnderstandingAgent
 from app.agents.edge_case_finder import EdgeCaseFinderAgent
-from app.agents.test_writer import TestWriterAgent
-from app.agents.test_executor import TestExecutorAgent
-from app.agents.coverage import CoverageAgent
-from app.agents.ci_agent import CIAgent
 from app.agents.llm_test_generator import LLMTestGenerator
+from app.agents.repo_scanner import RepoScannerAgent
+from app.core.config import settings
+
+logger = logging.getLogger(__name__)
+
+MODULE_NAME = "temp_code"
+PYTEST_TIMEOUT = 90
+_ALLOWED_GIT_HOSTS = {"github.com", "gitlab.com", "bitbucket.org"}
+
+StageCallback = Callable[[str], None]
 
 
 class TestGenerationOrchestrator:
-    """
-    Main orchestration layer for:
-    - repository analysis
-    - function extraction
-    - edge case detection
-    - AI test generation
-    - pytest execution
-    - coverage reporting
-    """
-
-    MAX_FILES_TO_ANALYZE = 15
-    MAX_FUNCTIONS_TO_ANALYZE = 10
-    MAX_FILE_SIZE = 50000
-
-    def __init__(self):
-
-        self.job_id = str(uuid.uuid4())
-
-        self.repo_scanner = RepoScannerAgent("")
-        self.code_understanding = CodeUnderstandingAgent("")
+    def __init__(self, on_stage: Optional[StageCallback] = None) -> None:
         self.edge_case_finder = EdgeCaseFinderAgent()
-        self.test_writer = TestWriterAgent()
-        self.test_executor = TestExecutorAgent()
-        self.coverage_agent = CoverageAgent()
-        self.ci_agent = CIAgent()
+        self.llm = LLMTestGenerator()
+        self._on_stage = on_stage
 
-        self.llm_test_generator = LLMTestGenerator()
+    def _stage(self, stage: str) -> None:
+        if self._on_stage:
+            try:
+                self._on_stage(stage)
+            except Exception:  # noqa: BLE001 - progress reporting is best-effort
+                pass
 
-        self.generated_tests_dir = os.path.abspath(
-            "generated_tests"
-        )
+    # ------------------------------------------------------------------
+    # Public entry points
+    # ------------------------------------------------------------------
+    def analyze_from_text(self, source_code: str, language: str = "python") -> Dict[str, Any]:
+        self._stage("extracting_functions")
+        with tempfile.TemporaryDirectory(prefix="atcg_") as workdir:
+            self._write_module(workdir, source_code)
+            functions = self._extract_python_functions(source_code, f"{MODULE_NAME}.py")
+            return self._run_pipeline(
+                workdir, source_code, functions, {"python": 1}, files_scanned=1
+            )
 
-        os.makedirs(
-            self.generated_tests_dir,
-            exist_ok=True
-        )
+    def analyze_from_zip(self, zip_path: str) -> Dict[str, Any]:
+        self._stage("scanning")
+        with tempfile.TemporaryDirectory(prefix="atcg_zip_") as extract_dir:
+            RepoScannerAgent.extract_from_zip(zip_path, extract_dir)
+            return self._analyze_repository(extract_dir)
 
-    # ==========================================================
-    # CLEANUP GENERATED FILES
-    # ==========================================================
+    def analyze_from_url(self, github_url: str) -> Dict[str, Any]:
+        self._validate_repo_url(github_url)
+        self._stage("scanning")
+        with tempfile.TemporaryDirectory(prefix="atcg_clone_") as clone_dir:
+            RepoScannerAgent.clone_from_github(github_url, clone_dir)
+            return self._analyze_repository(clone_dir)
 
-    def _cleanup_generated_tests(self):
+    # ------------------------------------------------------------------
+    # Repository analysis (zip / clone)
+    # ------------------------------------------------------------------
+    def _analyze_repository(self, repo_path: str) -> Dict[str, Any]:
+        structure = RepoScannerAgent(repo_path).scan()
+        source_files = [
+            path
+            for path in structure.get("files", [])
+            if path.endswith((".py", ".js", ".ts"))
+        ][: settings.max_files_to_analyze]
 
-        if not os.path.exists(
-            self.generated_tests_dir
-        ):
-            return
+        self._stage("extracting_functions")
+        combined_source = ""
+        functions: List[Dict[str, Any]] = []
+        for rel_path in source_files:
+            try:
+                with open(os.path.join(repo_path, rel_path), "r", encoding="utf-8", errors="ignore") as handle:
+                    content = handle.read()
+            except OSError as exc:
+                logger.warning("Could not read %s: %s", rel_path, exc)
+                continue
+            if len(content) > 50_000:
+                continue
+            combined_source += "\n\n" + content
+            if rel_path.endswith(".py"):
+                functions.extend(self._extract_python_functions(content, rel_path))
 
-        for file_name in os.listdir(
-            self.generated_tests_dir
-        ):
+        with tempfile.TemporaryDirectory(prefix="atcg_") as workdir:
+            self._write_module(workdir, combined_source)
+            return self._run_pipeline(
+                workdir,
+                combined_source,
+                functions,
+                structure.get("languages", {}),
+                files_scanned=structure.get("total_files", len(source_files)),
+            )
 
-            if (
-                file_name.startswith("test_")
-                or file_name.startswith("temp_code")
-            ):
-
-                try:
-
-                    os.remove(
-                        os.path.join(
-                            self.generated_tests_dir,
-                            file_name
-                        )
-                    )
-
-                except Exception:
-                    pass
-
-    # ==========================================================
-    # SAVE TEMP SOURCE
-    # ==========================================================
-
-    def _save_temp_source_code(
+    # ------------------------------------------------------------------
+    # Shared pipeline
+    # ------------------------------------------------------------------
+    def _run_pipeline(
         self,
+        workdir: str,
         source_code: str,
-        language: str = "python"
-    ) -> str:
+        functions: List[Dict[str, Any]],
+        languages: Dict[str, int],
+        files_scanned: int,
+    ) -> Dict[str, Any]:
+        total_discovered = len(functions)
+        functions = functions[: settings.max_functions_to_analyze]
 
-        extension = (
-            "py"
-            if language == "python"
-            else "js"
+        self._stage("finding_edge_cases")
+        edge_cases = self._collect_edge_cases(functions)
+
+        self._stage("generating_tests")
+        generated_tests, test_files = self._generate_tests(workdir, functions)
+
+        self._stage("running_tests")
+        test_results, coverage = self._execute_tests(workdir, test_files)
+
+        total_test_cases = sum(
+            len(re.findall(r"^\s*def test_", t["content"], re.MULTILINE))
+            for t in generated_tests
         )
 
-        temp_source_path = os.path.join(
-            self.generated_tests_dir,
-            f"temp_code.{extension}"
-        )
+        return {
+            "structure": {
+                "languages": languages,
+                "functions": [{"name": f["name"], "file": f["file"]} for f in functions],
+            },
+            "stats": {
+                "files_scanned": files_scanned,
+                "total_loc": source_code.count("\n") + 1 if source_code.strip() else 0,
+                "functions_found": total_discovered,
+                "functions_analyzed": len(functions),
+                "test_modules": len(generated_tests),
+                "test_cases": total_test_cases,
+            },
+            "edge_cases": edge_cases[:20],
+            "tests": generated_tests,
+            "test_results": test_results,
+            "coverage": coverage,
+            "llm_provider": settings.llm_provider,
+        }
 
-        os.makedirs(
-            self.generated_tests_dir,
-            exist_ok=True
-        )
+    def _collect_edge_cases(self, functions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        edge_cases: List[Dict[str, Any]] = []
+        for fn in functions:
+            info = {
+                "name": fn["name"],
+                "args": fn.get("args", []),
+                "source_code": fn.get("context", ""),
+                "docstring": fn.get("context", ""),
+            }
+            try:
+                edge_cases.extend(self.edge_case_finder.find_edge_cases(info, "")[:10])
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Edge-case detection failed for %s: %s", fn["name"], exc)
 
-        with open(
-            temp_source_path,
-            "w",
-            encoding="utf-8"
-        ) as f:
+        seen: set[tuple] = set()
+        unique: List[Dict[str, Any]] = []
+        for case in edge_cases:
+            key = (case.get("type"), case.get("description"))
+            if key in seen:
+                continue
+            seen.add(key)
+            unique.append(case)
+        return unique
 
-            f.write(source_code)
+    def _generate_tests(
+        self, workdir: str, functions: List[Dict[str, Any]]
+    ) -> tuple[List[Dict[str, Any]], List[str]]:
+        py_functions = [f for f in functions if f.get("language") == "python"]
+        raw = self.llm.generate_tests(py_functions)  # {name: code}
 
-        print(
-            f"[TEMP SOURCE SAVED] "
-            f"{temp_source_path}"
-        )
+        generated: List[Dict[str, Any]] = []
+        test_files: List[str] = []
+        for index, fn in enumerate(py_functions):
+            code = raw.get(fn["name"])
+            if not code:
+                continue
+            content = self._fix_test_imports(code, fn["name"])
+            if not self._is_valid_python(content):
+                continue
+            file_name = f"test_{fn['name']}_{index}.py"
+            with open(os.path.join(workdir, file_name), "w", encoding="utf-8") as handle:
+                handle.write(content)
+            generated.append(
+                {
+                    "target_function": fn["name"],
+                    "test_type": "comprehensive",
+                    "language": "python",
+                    "content": content,
+                }
+            )
+            test_files.append(file_name)
+        return generated, test_files
 
-        return temp_source_path
+    def _execute_tests(
+        self, workdir: str, test_files: List[str]
+    ) -> tuple[List[Dict[str, Any]], Dict[str, Any]]:
+        if not test_files:
+            return [], self._empty_coverage()
 
-    # ==========================================================
-    # PYTHON EXTRACTION
-    # ==========================================================
-
-    def _extract_python_functions(
-        self,
-        source_code: str,
-        file_name: str
-    ) -> List[Dict[str, Any]]:
-
-        functions = []
-
+        self._stage("computing_coverage")
+        coverage_path = os.path.join(workdir, "coverage.json")
+        env = os.environ.copy()
+        env["PYTHONPATH"] = workdir
         try:
+            process = subprocess.run(
+                [
+                    "python", "-m", "pytest", *test_files,
+                    "-v", "--tb=short", "-p", "no:cacheprovider",
+                    f"--cov={MODULE_NAME}", f"--cov-report=json:{coverage_path}",
+                ],
+                cwd=workdir, env=env, capture_output=True, text=True, timeout=PYTEST_TIMEOUT,
+            )
+            output = process.stdout + "\n" + process.stderr
+        except subprocess.TimeoutExpired:
+            return (
+                [{"file": "generated tests", "status": "timeout", "output": "Execution timed out"}],
+                self._empty_coverage(),
+            )
+        return self._parse_pytest_output(output, test_files), self._parse_coverage(coverage_path)
 
+    # ------------------------------------------------------------------
+    # Parsing / helpers
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _write_module(workdir: str, source_code: str) -> None:
+        with open(os.path.join(workdir, f"{MODULE_NAME}.py"), "w", encoding="utf-8") as handle:
+            handle.write(source_code)
+
+    @staticmethod
+    def _empty_coverage() -> Dict[str, Any]:
+        return {"total_coverage": 0.0, "covered_lines": 0, "total_lines": 0, "executed": False}
+
+    @staticmethod
+    def _parse_pytest_output(output: str, test_files: List[str]) -> List[Dict[str, Any]]:
+        results = []
+        for file_name in test_files:
+            file_lines = [ln for ln in output.splitlines() if file_name in ln and "::" in ln]
+            failed = any("FAILED" in ln or "ERROR" in ln for ln in file_lines)
+            passed = any("PASSED" in ln for ln in file_lines)
+            status = "failed" if failed else ("passed" if passed else "no tests")
+            results.append({"file": file_name, "status": status, "output": "\n".join(file_lines)})
+        return results
+
+    @staticmethod
+    def _parse_coverage(coverage_path: str) -> Dict[str, Any]:
+        empty = {"total_coverage": 0.0, "covered_lines": 0, "total_lines": 0, "executed": False}
+        if not os.path.exists(coverage_path):
+            return empty
+        try:
+            import json
+
+            with open(coverage_path, "r", encoding="utf-8") as handle:
+                totals = json.load(handle).get("totals", {})
+            return {
+                "total_coverage": round(totals.get("percent_covered", 0.0), 2),
+                "covered_lines": totals.get("covered_lines", 0),
+                "total_lines": totals.get("num_statements", 0),
+                "executed": totals.get("num_statements", 0) > 0,
+            }
+        except (OSError, ValueError) as exc:
+            logger.warning("Coverage parse failed: %s", exc)
+            return empty
+
+    @staticmethod
+    def _validate_repo_url(url: str) -> None:
+        parsed = urllib.parse.urlparse(url)
+        if parsed.scheme not in {"http", "https"}:
+            raise ValueError("Only http(s) repository URLs are allowed")
+        if parsed.hostname not in _ALLOWED_GIT_HOSTS:
+            raise ValueError(f"Repository host '{parsed.hostname}' is not allowed")
+
+    @staticmethod
+    def _extract_python_functions(source_code: str, file_name: str) -> List[Dict[str, Any]]:
+        functions: List[Dict[str, Any]] = []
+        try:
             tree = ast.parse(source_code)
+        except SyntaxError as exc:
+            logger.warning("Could not parse %s: %s", file_name, exc)
+            return functions
 
-            source_lines = source_code.splitlines()
-
-            for node in ast.walk(tree):
-
-                if not isinstance(
-                    node,
-                    (
-                        ast.FunctionDef,
-                        ast.AsyncFunctionDef
-                    )
-                ):
-                    continue
-
-                start_line = node.lineno
-
-                end_line = getattr(
-                    node,
-                    "end_lineno",
-                    start_line + 20
-                )
-
-                function_source = "\n".join(
-                    source_lines[
-                        start_line - 1:end_line
-                    ]
-                )
-
-                args = []
-
-                for arg in node.args.args:
-
-                    args.append({
-                        "name": arg.arg
-                    })
-
-                functions.append({
+        lines = source_code.splitlines()
+        # Top-level functions only: generated tests import by name, so class
+        # methods and dunders cannot be imported standalone.
+        for node in tree.body:
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            if node.name.startswith("__"):
+                continue
+            end = getattr(node, "end_lineno", node.lineno + 20)
+            functions.append(
+                {
                     "name": node.name,
                     "file": file_name,
                     "language": "python",
-                    "signature": f"def {node.name}",
-                    "args": args,
-                    "context": function_source,
-                    "full_source": function_source,
-                    "lineno": start_line
-                })
-
-        except Exception as e:
-
-            print(
-                f"[PYTHON EXTRACTION ERROR] {e}"
+                    "args": [{"name": a.arg} for a in node.args.args if a.arg != "self"],
+                    "context": "\n".join(lines[node.lineno - 1 : end]),
+                }
             )
-
         return functions
 
-    # ==========================================================
-    # JS EXTRACTION
-    # ==========================================================
-
-    def _extract_js_functions(
-        self,
-        source_code: str,
-        file_name: str
-    ) -> List[Dict[str, Any]]:
-
-        functions = []
-
-        patterns = [
-
-            r'function\s+(\w+)\s*\((.*?)\)',
-
-            r'const\s+(\w+)\s*=\s*\((.*?)\)\s*=>',
-
-            r'export\s+function\s+(\w+)\s*\((.*?)\)'
-        ]
-
-        try:
-
-            for pattern in patterns:
-
-                for match in re.finditer(
-                    pattern,
-                    source_code
-                ):
-
-                    func_name = match.group(1)
-
-                    raw_args = match.group(2)
-
-                    args = []
-
-                    for arg in raw_args.split(","):
-
-                        arg = arg.strip()
-
-                        if arg:
-
-                            args.append({
-                                "name": arg
-                            })
-
-                    start_pos = max(
-                        0,
-                        match.start() - 200
-                    )
-
-                    end_pos = min(
-                        len(source_code),
-                        match.end() + 800
-                    )
-
-                    function_source = source_code[
-                        start_pos:end_pos
-                    ]
-
-                    functions.append({
-                        "name": func_name,
-                        "file": file_name,
-                        "language": "javascript",
-                        "signature": match.group(0),
-                        "args": args,
-                        "context": function_source,
-                        "full_source": function_source
-                    })
-
-        except Exception as e:
-
-            print(
-                f"[JS EXTRACTION ERROR] {e}"
-            )
-
-        return functions
-
-    # ==========================================================
-    # FUNCTION ROUTER
-    # ==========================================================
-
-    def _extract_functions(
-        self,
-        source_code: str,
-        language: str,
-        file_name: str
-    ) -> List[Dict[str, Any]]:
-
-        if language == "python":
-
-            return self._extract_python_functions(
-                source_code,
-                file_name
-            )
-
-        return self._extract_js_functions(
-            source_code,
-            file_name
-        )
-
-    # ==========================================================
-    # FUNCTION INFO
-    # ==========================================================
-
-    def _build_function_info(
-        self,
-        func: Dict[str, Any]
-    ) -> Dict[str, Any]:
-
-        return {
-            "name": func["name"],
-            "docstring": func.get(
-                "context",
-                ""
-            ),
-            "args": func.get(
-                "args",
-                []
-            ),
-            "source_code": func.get(
-                "context",
-                ""
-            )
-        }
-
-    # ==========================================================
-    # FIX IMPORTS
-    # ==========================================================
-
-    def _fix_test_imports(
-        self,
-        test_content: str,
-        module_name: str,
-        function_name: str = None
-    ) -> str:
-
-        fixed_content = (
-            "import sys\n"
-            "import os\n\n"
-            "sys.path.insert(0, os.path.dirname(__file__))\n\n"
+    @staticmethod
+    def _fix_test_imports(test_content: str, function_name: str) -> str:
+        header = (
+            "import sys, os\n"
+            "sys.path.insert(0, os.path.dirname(__file__))\n"
             "import pytest\n"
+            f"from {MODULE_NAME} import {function_name}\n\n"
         )
-
-        if function_name:
-
-            fixed_content += (
-                f"from {module_name} "
-                f"import {function_name}\n\n"
-            )
-
-        test_lines = test_content.strip().split("\n")
-
-        filtered_lines = []
-
-        for line in test_lines:
-
+        skip = ("import pytest", "import sys", "import os", "sys.path")
+        body_lines = []
+        for line in test_content.strip().splitlines():
             stripped = line.strip()
-
-            if (
-                stripped.startswith("import pytest")
-                or stripped.startswith("from temp_code import")
-                or stripped.startswith("import sys")
-                or stripped.startswith("import os")
-                or stripped.startswith("sys.path")
-                or not stripped
-            ):
+            if any(stripped.startswith(prefix) for prefix in skip):
                 continue
+            if stripped.startswith("from temp_code import"):
+                continue
+            body_lines.append(line)
 
-            filtered_lines.append(line)
+        body = "\n".join(body_lines)
+        for pattern in (r"from your_module import", r"from module import", r"import your_module"):
+            body = re.sub(pattern, f"from {MODULE_NAME} import", body)
+        return (header + body).strip()
 
-        fixed_content += "\n".join(filtered_lines)
-
-        replacements = [
-            (
-                "from your_module import",
-                f"from {module_name} import"
-            ),
-            (
-                "from module import",
-                f"from {module_name} import"
-            ),
-            (
-                "import your_module",
-                f"import {module_name}"
-            )
-        ]
-
-        for old, new in replacements:
-
-            fixed_content = fixed_content.replace(
-                old,
-                new
-            )
-
-        return fixed_content.strip()
-
-    # ==========================================================
-    # VALIDATE PYTHON TEST
-    # ==========================================================
-
-    def _validate_python_test(
-        self,
-        code: str
-    ) -> bool:
-
+    @staticmethod
+    def _is_valid_python(code: str) -> bool:
         try:
-
             ast.parse(code)
-
-            if "test_" not in code:
-                return False
-
-            return True
-
-        except Exception as e:
-
-            print(
-                f"[TEST VALIDATION ERROR] {e}"
-            )
-
+        except SyntaxError:
             return False
-
-    # ==========================================================
-    # SAVE TESTS
-    # ==========================================================
-
-    def _save_generated_tests(
-        self,
-        tests: List[Dict[str, Any]]
-    ) -> List[str]:
-
-        saved_files = []
-
-        for index, test in enumerate(tests):
-
-            try:
-
-                target = test.get(
-                    "target_function",
-                    f"generated_{index}"
-                )
-
-                language = test.get(
-                    "language",
-                    "python"
-                )
-
-                extension = (
-                    "py"
-                    if language == "python"
-                    else "js"
-                )
-
-                file_name = (
-                    f"test_{target}_{index}.{extension}"
-                )
-
-                file_path = os.path.join(
-                    self.generated_tests_dir,
-                    file_name
-                )
-
-                with open(
-                    file_path,
-                    "w",
-                    encoding="utf-8"
-                ) as f:
-
-                    f.write(
-                        test["content"]
-                    )
-
-                print(
-                    f"[TEST SAVED] {file_path}"
-                )
-
-                saved_files.append(
-                    file_path
-                )
-
-            except Exception as e:
-
-                print(
-                    f"[SAVE TEST ERROR] {e}"
-                )
-
-        return saved_files
-
-    # ==========================================================
-    # RUN PYTEST
-    # ==========================================================
-
-    def _run_pytest(
-        self,
-        test_files: List[str]
-    ) -> List[Dict[str, Any]]:
-
-        results = []
-
-        for test_file in test_files:
-
-            start_time = time.time()
-
-            try:
-
-                env = os.environ.copy()
-
-                env["PYTHONPATH"] = (
-                    self.generated_tests_dir
-                )
-
-                process = subprocess.run(
-                    [
-                        "python",
-                        "-m",
-                        "pytest",
-                        os.path.basename(test_file),
-                        "-v",
-                        "--tb=short"
-                    ],
-                    cwd=self.generated_tests_dir,
-                    env=env,
-                    capture_output=True,
-                    text=True,
-                    timeout=60
-                )
-
-                duration = round(
-                    time.time() - start_time,
-                    2
-                )
-
-                results.append({
-                    "file": test_file,
-                    "status": (
-                        "passed"
-                        if process.returncode == 0
-                        else "failed"
-                    ),
-                    "duration": duration,
-                    "output": process.stdout,
-                    "errors": process.stderr
-                })
-
-            except subprocess.TimeoutExpired:
-
-                results.append({
-                    "file": test_file,
-                    "status": "timeout",
-                    "duration": 60,
-                    "output": "",
-                    "errors": "Pytest timed out"
-                })
-
-            except Exception as e:
-
-                results.append({
-                    "file": test_file,
-                    "status": "error",
-                    "duration": 0,
-                    "output": "",
-                    "errors": str(e)
-                })
-
-        return results
-
-    # ==========================================================
-    # ANALYZE REPOSITORY
-    # ==========================================================
-
-    def analyze_repository(
-        self,
-        repo_path: str
-    ) -> Dict[str, Any]:
-
-        print(
-            f"[Job {self.job_id}] Starting analysis"
-        )
-
-        self._cleanup_generated_tests()
-
-        self.repo_scanner = RepoScannerAgent(
-            repo_path
-        )
-
-        repo_structure = (
-            self.repo_scanner.scan()
-        )
-
-        files_to_analyze = [
-
-            file_path
-
-            for file_path in repo_structure.get(
-                "files",
-                []
-            )
-
-            if file_path.endswith(
-                (
-                    ".py",
-                    ".js",
-                    ".ts"
-                )
-            )
-
-        ][:self.MAX_FILES_TO_ANALYZE]
-
-        functions_data = []
-
-        full_source_code = ""
-
-        for file_path in files_to_analyze:
-
-            full_path = os.path.join(
-                repo_path,
-                file_path
-            )
-
-            try:
-
-                with open(
-                    full_path,
-                    "r",
-                    encoding="utf-8",
-                    errors="ignore"
-                ) as f:
-
-                    content = f.read()
-
-                full_source_code += (
-                    "\n\n" + content
-                )
-
-                if (
-                    len(content)
-                    > self.MAX_FILE_SIZE
-                ):
-                    continue
-
-                language = (
-                    "python"
-                    if file_path.endswith(".py")
-                    else "javascript"
-                )
-
-                extracted = self._extract_functions(
-                    content,
-                    language,
-                    file_path
-                )
-
-                functions_data.extend(
-                    extracted
-                )
-
-            except Exception as e:
-
-                print(
-                    f"[FILE READ ERROR] "
-                    f"{file_path}: {e}"
-                )
-
-        functions_data = functions_data[
-            :self.MAX_FUNCTIONS_TO_ANALYZE
-        ]
-
-        self._save_temp_source_code(
-            full_source_code,
-            "python"
-        )
-
-        edge_cases_list = []
-
-        for func in functions_data:
-
-            try:
-
-                func_info = (
-                    self._build_function_info(
-                        func
-                    )
-                )
-
-                edge_cases = (
-                    self.edge_case_finder.find_edge_cases(
-                        func_info,
-                        ""
-                    )
-                )
-
-                edge_cases_list.extend(
-                    edge_cases[:10]
-                )
-
-            except Exception as e:
-
-                print(
-                    f"[EDGE CASE ERROR] {e}"
-                )
-
-        generated_tests = []
-
-        for func in functions_data:
-
-            try:
-
-                module_name = "temp_code"
-
-                print(
-                    f"[TEST GEN] Generating for "
-                    f"function: {func['name']}"
-                )
-
-                llm_tests = (
-                    self.llm_test_generator.generate_tests_from_code(
-                        func["context"],
-                        func["name"],
-                        func["language"]
-                    )
-                )
-
-                valid_tests = []
-
-                for test in llm_tests:
-
-                    content = test.get(
-                        "content",
-                        ""
-                    )
-
-                    if not content:
-                        continue
-
-                    content = (
-                        self._fix_test_imports(
-                            content,
-                            module_name,
-                            func["name"]
-                        )
-                    )
-
-                    test["content"] = content
-
-                    test["target_function"] = (
-                        func["name"]
-                    )
-
-                    if (
-                        func["language"]
-                        == "python"
-                    ):
-
-                        if self._validate_python_test(
-                            content
-                        ):
-
-                            valid_tests.append(
-                                test
-                            )
-
-                    else:
-
-                        valid_tests.append(
-                            test
-                        )
-
-                generated_tests.extend(
-                    valid_tests
-                )
-
-            except Exception as e:
-
-                print(
-                    f"[TEST GENERATION ERROR] {e}"
-                )
-
-        saved_test_files = (
-            self._save_generated_tests(
-                generated_tests
-            )
-        )
-
-        test_results = self._run_pytest(
-            saved_test_files
-        )
-
-        try:
-
-            coverage_report = (
-                self.coverage_agent.compute_coverage(
-                    test_results,
-                    files_to_analyze,
-                    "python"
-                )
-            )
-
-        except Exception as e:
-
-            coverage_report = {
-                "status": "error",
-                "message": str(e)
-            }
-
-        return {
-
-            "job_id": self.job_id,
-
-            "status": "COMPLETED",
-
-            "structure": {
-
-                "languages": repo_structure.get(
-                    "languages",
-                    {}
-                ),
-
-                "files": files_to_analyze,
-
-                "functions": [
-                    {
-                        "name": f["name"],
-                        "file": f["file"]
-                    }
-                    for f in functions_data
-                ]
-            },
-
-            "edge_cases": edge_cases_list[:20],
-
-            "tests": generated_tests,
-
-            "saved_test_files": saved_test_files,
-
-            "test_results": test_results,
-
-            "coverage": coverage_report,
-
-            "suggestions": [
-                "AI tests generated successfully",
-                "Edge cases analyzed",
-                "Tests executed with pytest"
-            ],
-
-            "llm_provider": "groq",
-
-            "api_calls_made": len(
-                generated_tests
-            )
-        }
-
-    # ==========================================================
-    # ANALYZE GITHUB URL
-    # ==========================================================
-
-    def analyze_from_url(
-        self,
-        github_url: str
-    ):
-
-        repo_path = tempfile.mkdtemp()
-
-        RepoScannerAgent.clone_from_github(
-            github_url,
-            repo_path
-        )
-
-        return self.analyze_repository(
-            repo_path
-        )
-
-    # ==========================================================
-    # ANALYZE ZIP
-    # ==========================================================
-
-    def analyze_from_zip(
-        self,
-        zip_path: str
-    ):
-
-        extract_to = tempfile.mkdtemp()
-
-        RepoScannerAgent.extract_from_zip(
-            zip_path,
-            extract_to
-        )
-
-        for item in os.listdir(extract_to):
-
-            item_path = os.path.join(
-                extract_to,
-                item
-            )
-
-            if os.path.isdir(item_path):
-
-                return self.analyze_repository(
-                    item_path
-                )
-
-        return self.analyze_repository(
-            extract_to
-        )
-
-    # ==========================================================
-    # ANALYZE RAW CODE
-    # ==========================================================
-
-    def analyze_from_text(
-        self,
-        source_code: str,
-        language: str = "python"
-    ):
-
-        temp_dir = tempfile.mkdtemp()
-
-        extension = (
-            "py"
-            if language == "python"
-            else "js"
-        )
-
-        file_path = os.path.join(
-            temp_dir,
-            f"temp_code.{extension}"
-        )
-
-        with open(
-            file_path,
-            "w",
-            encoding="utf-8"
-        ) as f:
-
-            f.write(source_code)
-
-        return self.analyze_repository(
-            temp_dir
-        )
+        return "test_" in code

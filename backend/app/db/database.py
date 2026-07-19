@@ -1,164 +1,60 @@
-from sqlalchemy import (
-    create_engine,
-    text
-)
+"""Database engine, session factory, and helpers."""
 
-from sqlalchemy.orm import (
-    sessionmaker,
-    declarative_base
-)
+import logging
 
-import os
+from sqlalchemy import create_engine, text
+from sqlalchemy.orm import Session, declarative_base, sessionmaker
 
+from app.core.config import settings
 
-# ==========================================================
-# DATABASE URL
-# ==========================================================
-
-# Priority:
-# 1. Environment variable
-# 2. SQLite fallback for local tests
-
-DATABASE_URL = os.getenv(
-    "DATABASE_URL",
-    "sqlite:///./test.db"
-)
-
-
-# ==========================================================
-# BASE MODEL
-# ==========================================================
-
-# IMPORTANT:
-# This is the SINGLE shared Base
-# used across the entire application.
+logger = logging.getLogger(__name__)
 
 Base = declarative_base()
 
 
-# ==========================================================
-# ENGINE CONFIGURATION
-# ==========================================================
+def _build_engine():
+    """Create an engine with sensible, free-tier-friendly pooling."""
+    url = settings.database_url
+    kwargs: dict = {"future": True, "echo": False}
 
-engine_kwargs = {
-    "echo": False,
-    "future": True
-}
+    if url.startswith("sqlite"):
+        kwargs["connect_args"] = {"check_same_thread": False}
+    else:
+        # Small pool: free Postgres tiers (Render/Supabase) cap connections.
+        kwargs.update(
+            pool_pre_ping=True,
+            pool_size=5,
+            max_overflow=5,
+            pool_recycle=1800,
+        )
+        if "supabase.co" in url or "supabase.com" in url:
+            kwargs.setdefault("connect_args", {})["sslmode"] = "require"
 
-
-# ==========================================================
-# SQLITE CONFIG
-# ==========================================================
-
-connect_args = {}
-
-if DATABASE_URL.startswith("sqlite"):
-
-    connect_args = {
-        "check_same_thread": False
-    }
-
-    engine_kwargs.update({
-        "connect_args": connect_args
-    })
+    return create_engine(url, **kwargs)
 
 
-# ==========================================================
-# SUPABASE / POSTGRES CONFIG
-# ==========================================================
-
-elif "supabase.com" in DATABASE_URL:
-
-    connect_args = {
-        "sslmode": "require"
-    }
-
-    engine_kwargs.update({
-        "connect_args": connect_args,
-        "pool_pre_ping": True,
-        "pool_size": 10,
-        "max_overflow": 20,
-        "pool_recycle": 3600
-    })
-
-
-# ==========================================================
-# LOCAL POSTGRES / DOCKER CONFIG
-# ==========================================================
-
-elif DATABASE_URL.startswith("postgresql"):
-
-    engine_kwargs.update({
-        "pool_pre_ping": True,
-        "pool_size": 10,
-        "max_overflow": 20,
-        "pool_recycle": 3600
-    })
-
-
-# ==========================================================
-# CREATE ENGINE
-# ==========================================================
-
-engine = create_engine(
-    DATABASE_URL,
-    **engine_kwargs
-)
-
-
-# ==========================================================
-# SESSION FACTORY
-# ==========================================================
+engine = _build_engine()
 
 SessionLocal = sessionmaker(
-    bind=engine,
-    autocommit=False,
-    autoflush=False,
-    expire_on_commit=False
+    bind=engine, autocommit=False, autoflush=False, expire_on_commit=False
 )
 
 
-# ==========================================================
-# DATABASE DEPENDENCY
-# ==========================================================
-
 def get_db():
-    """
-    FastAPI database dependency.
-    """
-
+    """FastAPI dependency yielding a scoped session."""
     db = SessionLocal()
-
     try:
-
         yield db
-
     finally:
-
         db.close()
 
 
-# ==========================================================
-# DATABASE HEALTH CHECK
-# ==========================================================
-
 def check_database_connection() -> bool:
-    """
-    Verify database connectivity.
-    """
-
+    """Return True if the database is reachable."""
     try:
-
         with engine.connect() as connection:
-
-            connection.execute(
-                text("SELECT 1")
-            )
-
+            connection.execute(text("SELECT 1"))
         return True
-
-    except Exception as e:
-
-        print(f"Database connection failed: {e}")
-
+    except Exception as exc:  # noqa: BLE001 - surfaced via health endpoint
+        logger.warning("Database connection failed: %s", exc)
         return False

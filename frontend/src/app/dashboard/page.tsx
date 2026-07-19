@@ -1,686 +1,136 @@
-'use client';
+"use client";
 
-import { useState } from 'react';
-import Link from 'next/link';
-import {
-  ArrowLeft,
-  Loader,
-  BarChart3
-} from 'lucide-react';
-
-
-interface AnalysisResult {
-
-  job_id: string;
-
-  status: string;
-
-  message?: string;
-
-  created_at?: string;
-
-  updated_at?: string;
-
- source_type?: string;
-
-  structure?: any;
-
-  functions?: any[];
-
-  edge_cases?: any[];
-
-  tests?: any[];
-
-  test_results?: any[];
-
-  coverage?: any;
-
-  error?: string;
-}
-
+import { useCallback, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import Link from "next/link";
+import { ArrowRight, Clock, Loader2, Search, Trash2 } from "lucide-react";
+import { Nav } from "@/components/nav";
+import { Footer } from "@/components/footer";
+import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Badge, statusTone } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
+import { api } from "@/lib/api";
+import { timeAgo } from "@/lib/utils";
+import type { RecentJob } from "@/lib/types";
 
 export default function DashboardPage() {
+  const router = useRouter();
+  const [jobs, setJobs] = useState<RecentJob[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [lookup, setLookup] = useState("");
 
-  const [jobId, setJobId] =
-    useState<string>('');
-
-  const [result, setResult] =
-    useState<AnalysisResult | null>(null);
-
-  const [loading, setLoading] =
-    useState(false);
-
-  const [error, setError] =
-    useState<string | null>(null);
-
-
-  // ==========================================================
-  // CHECK STATUS
-  // ==========================================================
-
-  const handleCheckStatus = async (
-    e: React.FormEvent
-  ) => {
-
-    e.preventDefault();
-
-    if (!jobId.trim()) {
-
-      setError('Please enter a Job ID');
-
-      return;
-    }
-
-    setLoading(true);
-
-    setError(null);
-
+  const load = useCallback(async () => {
     try {
-
-      const response = await fetch(
-
-        `${process.env.NEXT_PUBLIC_API_URL}/api/v1/analysis/${jobId}`,
-
-        {
-          method: 'GET',
-        }
-      );
-
-      if (!response.ok) {
-
-        const errorData =
-          await response.json().catch(
-            () => ({})
-          );
-
-        throw new Error(
-          errorData.detail ||
-          'Failed to fetch results'
-        );
-      }
-
-      const data = await response.json();
-
-      setResult(data);
-
+      setJobs(await api.listRecent(30));
     } catch (err) {
-
-      setError(
-
-        err instanceof Error
-          ? err.message
-          : 'Failed to fetch results'
-      );
-
-    } finally {
-
-      setLoading(false);
+      setError(err instanceof Error ? err.message : "Failed to load history");
     }
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const remove = async (id: string) => {
+    await api.deleteJob(id).catch(() => undefined);
+    setJobs((prev) => prev?.filter((j) => j.job_id !== id) ?? null);
   };
 
-
-  // ==========================================================
-  // UI
-  // ==========================================================
-
   return (
-
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
-
-      {/* NAVIGATION */}
-
-      <nav className="border-b border-slate-700 bg-slate-900/50 backdrop-blur-sm sticky top-0 z-50">
-
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex items-center gap-4">
-
-          <Link
-            href="/"
-            className="flex items-center gap-2 text-slate-300 hover:text-white"
+    <div className="flex min-h-screen flex-col">
+      <Nav />
+      <main className="mx-auto w-full max-w-4xl flex-1 px-4 py-12 sm:px-6">
+        <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-bold text-slate-900 dark:text-white">History</h1>
+            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Recent analyses</p>
+          </div>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (lookup.trim()) router.push(`/results/${lookup.trim()}`);
+            }}
+            className="flex gap-2"
           >
-
-            <ArrowLeft size={20} />
-
-            Back
-
-          </Link>
-
-          <h2 className="text-2xl font-bold text-white">
-            Analysis Dashboard
-          </h2>
-
+            <div className="relative">
+              <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                value={lookup}
+                onChange={(e) => setLookup(e.target.value)}
+                placeholder="Open by Job ID"
+                className="rounded-lg border border-slate-300 bg-white py-2 pl-9 pr-3 text-sm outline-none focus:border-indigo-500 dark:border-slate-700 dark:bg-slate-950"
+              />
+            </div>
+            <Button type="submit" variant="secondary" size="sm">
+              Open
+            </Button>
+          </form>
         </div>
 
-      </nav>
-
-
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20">
-
-        {!result ? (
-
-          <div className="max-w-2xl mx-auto bg-slate-800/50 border border-slate-700 rounded-lg p-8">
-
-            <h3 className="text-2xl font-bold text-white mb-6">
-              Check Analysis Status
-            </h3>
-
-            <form
-              onSubmit={handleCheckStatus}
-              className="space-y-4"
-            >
-
-              <div>
-
-                <label className="block text-sm font-medium text-slate-300 mb-2">
-
-                  Job ID
-
-                </label>
-
-                <input
-                  type="text"
-
-                  placeholder="e.g., 06b81fd1-2646-41ed-8e24-8d1098bcef16"
-
-                  value={jobId}
-
-                  onChange={(e) =>
-                    setJobId(e.target.value)
-                  }
-
-                  className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-purple-500"
-                />
-
-              </div>
-
-              <button
-                type="submit"
-
-                disabled={loading}
-
-                className="w-full py-3 bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white font-semibold rounded-lg transition flex items-center justify-center gap-2"
-              >
-
-                {loading ? (
-                  <>
-                    <Loader
-                      size={20}
-                      className="animate-spin"
-                    />
-
-                    Checking Status...
-                  </>
-                ) : (
-                  'Check Status'
-                )}
-
-              </button>
-
-            </form>
-
-
-            {error && (
-
-              <div className="mt-4 bg-red-500/20 border border-red-500 rounded-lg p-4 text-red-200">
-
-                {error}
-
-              </div>
-            )}
-
-          </div>
-
-        ) : (
-
-          <div className="space-y-8">
-
-            {/* STATUS */}
-
-            <div className="bg-slate-800/50 border border-slate-700 rounded-lg p-8">
-
-              <div className="flex items-center justify-between mb-6">
-
-                <h3 className="text-2xl font-bold text-white flex items-center gap-2">
-
-                  <BarChart3
-                    size={28}
-                    className="text-purple-400"
-                  />
-
-                  Analysis Results
-
-                </h3>
-
-
-                <span
-                  className={`px-4 py-2 rounded-full font-semibold ${
-                    result.status === 'COMPLETED'
-                      ? 'bg-green-500/20 text-green-300'
-                      : result.status === 'FAILED'
-                      ? 'bg-red-500/20 text-red-300'
-                      : 'bg-blue-500/20 text-blue-300'
-                  }`}
-                >
-
-                  {result.status}
-
-                </span>
-
-              </div>
-
-
-              <p className="text-slate-400">
-
-                Job ID:
-
-                <code className="bg-slate-700 px-2 py-1 rounded ml-2">
-
-                  {result.job_id}
-
-                </code>
-
-              </p>
-
-            </div>
-
-
-            {/* FAILED */}
-
-            {result.status === 'FAILED' && (
-
-              <div className="bg-red-500/20 border border-red-500 rounded-lg p-6">
-
-                <h4 className="text-xl font-bold text-red-200 mb-3">
-                  Analysis Failed
-                </h4>
-
-                <p className="text-red-100">
-
-                  {result.error || 'Unknown error'}
-
-                </p>
-
-              </div>
-            )}
-
-
-            {/* IN PROGRESS */}
-
-            {(result.status === 'PENDING' ||
-              result.status === 'IN_PROGRESS') && (
-
-              <div className="bg-blue-500/20 border border-blue-500 rounded-lg p-6 text-center">
-
-                <div className="flex items-center justify-center gap-2 mb-4">
-
-                  <Loader
-                    size={24}
-                    className="animate-spin text-blue-400"
-                  />
-
-                </div>
-
-                <p className="text-blue-200">
-
-                  Analysis is still in progress.
-                  Please wait a few moments and try again.
-
-                </p>
-
-              </div>
-            )}
-
-
-            {/* COMPLETED */}
-
-            {result.status === 'COMPLETED' && (
-
-              <div className="space-y-8">
-
-                {/* SUMMARY */}
-
-                <div className="grid md:grid-cols-4 gap-4">
-
-                  <div className="bg-slate-800/50 border border-slate-700 rounded-lg p-6">
-
-                    <h4 className="text-sm font-medium text-slate-300 mb-2">
-                      Languages
-                    </h4>
-
-                    <p className="text-3xl font-bold text-purple-400">
-
-                      {result.structure?.languages
-                        ? Object.keys(
-                            result.structure.languages
-                          ).length
-                        : 0}
-
-                    </p>
-
-                  </div>
-
-
-                  <div className="bg-slate-800/50 border border-slate-700 rounded-lg p-6">
-
-                    <h4 className="text-sm font-medium text-slate-300 mb-2">
-                      Edge Cases
-                    </h4>
-
-                    <p className="text-3xl font-bold text-orange-400">
-
-                      {result.edge_cases?.length || 0}
-
-                    </p>
-
-                  </div>
-
-
-                  <div className="bg-slate-800/50 border border-slate-700 rounded-lg p-6">
-
-                    <h4 className="text-sm font-medium text-slate-300 mb-2">
-                      Tests
-                    </h4>
-
-                    <p className="text-3xl font-bold text-green-400">
-
-                      {result.tests?.length || 0}
-
-                    </p>
-
-                  </div>
-
-
-                  <div className="bg-slate-800/50 border border-slate-700 rounded-lg p-6">
-
-                    <h4 className="text-sm font-medium text-slate-300 mb-2">
-                      Functions
-                    </h4>
-
-                    <p className="text-3xl font-bold text-blue-400">
-
-                      {result.structure?.functions?.length || 0}
-
-                    </p>
-
-                  </div>
-
-                </div>
-
-
-                {/* LANGUAGES */}
-
-                {result.structure?.languages &&
-                  Object.keys(result.structure.languages).length > 0 && (
-
-                    <div className="bg-slate-800/50 border border-slate-700 rounded-lg p-8">
-
-                      <h4 className="text-xl font-bold text-white mb-4">
-                        Languages Detected
-                      </h4>
-
-                      <div className="grid md:grid-cols-3 gap-4">
-
-                        {Object.entries(
-                          result.structure.languages
-                        ).map(([lang, count]: any) => (
-
-                          <div
-                            key={lang}
-                            className="bg-slate-700/50 p-4 rounded-lg"
-                          >
-
-                            <p className="text-slate-300 capitalize">
-                              {lang}
-                            </p>
-
-                            <p className="text-2xl font-bold text-purple-300">
-                              {count}
-                            </p>
-
-                          </div>
-                        ))}
-
-                      </div>
-
-                    </div>
-                )}
-
-
-                {/* EDGE CASES */}
-
-                {result.edge_cases &&
-                  result.edge_cases.length > 0 && (
-
-                    <div className="bg-slate-800/50 border border-slate-700 rounded-lg p-8">
-
-                      <h4 className="text-xl font-bold text-white mb-4">
-                        Edge Cases Identified
-                      </h4>
-
-                      <div className="space-y-3 max-h-96 overflow-y-auto">
-
-                        {result.edge_cases.map(
-                          (edgeCase: any, idx: number) => (
-
-                            <div
-                              key={idx}
-                              className="bg-slate-700/50 p-4 rounded-lg border border-slate-600"
-                            >
-
-                              <p className="font-semibold text-orange-300 mb-2">
-
-                                {edgeCase.type}
-
-                              </p>
-
-                              <p className="text-sm text-slate-300">
-
-                                {edgeCase.description}
-
-                              </p>
-
-                            </div>
-                          )
-                        )}
-
-                      </div>
-
-                    </div>
-                )}
-
-
-                {/* GENERATED TESTS */}
-
-                {result.tests &&
-                  result.tests.length > 0 && (
-
-                    <div className="bg-slate-800/50 border border-slate-700 rounded-lg p-8">
-
-                      <h4 className="text-xl font-bold text-white mb-4">
-                        Generated Tests
-                      </h4>
-
-                      <div className="space-y-4 max-h-[700px] overflow-y-auto">
-
-                        {result.tests.map(
-                          (test: any, idx: number) => (
-
-                            <div
-                              key={idx}
-                              className="bg-slate-700/50 p-4 rounded-lg border border-slate-600"
-                            >
-
-                              <div className="flex items-center justify-between mb-3">
-
-                                <p className="font-semibold text-green-300">
-
-                                  {test.target_function}
-
-                                </p>
-
-                                <span className="text-xs bg-slate-600 px-2 py-1 rounded text-slate-200">
-
-                                  {test.test_type}
-
-                                </span>
-
-                              </div>
-
-                              <pre className="bg-slate-900 p-4 rounded text-xs text-slate-300 overflow-x-auto">
-
-                                {test.content}
-
-                              </pre>
-
-                            </div>
-                          )
-                        )}
-
-                      </div>
-
-                    </div>
-                )}
-
-
-                {/* TEST EXECUTION RESULTS */}
-
-                {result.test_results &&
-                  result.test_results.length > 0 && (
-
-                    <div className="bg-slate-800/50 border border-slate-700 rounded-lg p-8">
-
-                      <h4 className="text-xl font-bold text-white mb-4">
-                        Test Execution Results
-                      </h4>
-
-                      <div className="space-y-4">
-
-                        {result.test_results.map(
-                          (test: any, idx: number) => (
-
-                            <div
-                              key={idx}
-                              className="bg-slate-700/50 p-4 rounded-lg border border-slate-600"
-                            >
-
-                              <div className="flex items-center justify-between mb-2">
-
-                                <p className="text-sm text-slate-300 break-all">
-
-                                  {test.file}
-
-                                </p>
-
-                                <span
-                                  className={`px-3 py-1 rounded text-xs font-semibold ${
-                                    test.status === 'passed'
-                                      ? 'bg-green-500/20 text-green-300'
-                                      : 'bg-red-500/20 text-red-300'
-                                  }`}
-                                >
-
-                                  {test.status}
-
-                                </span>
-
-                              </div>
-
-                              <pre className="bg-slate-900 p-4 rounded text-xs text-slate-300 overflow-x-auto max-h-96">
-
-                                {test.output}
-
-                              </pre>
-
-                            </div>
-                          )
-                        )}
-
-                      </div>
-
-                    </div>
-                )}
-
-
-                {/* COVERAGE */}
-
-                {result.coverage && (
-
-                  <div className="bg-slate-800/50 border border-slate-700 rounded-lg p-8">
-
-                    <h4 className="text-xl font-bold text-white mb-4">
-                      Coverage Report
-                    </h4>
-
-                    <div className="mb-6 p-4 bg-slate-700/50 rounded-lg">
-
-                      <div className="flex items-center justify-between mb-2">
-
-                        <span className="text-slate-300">
-                          Total Coverage
-                        </span>
-
-                        <span className="text-2xl font-bold text-blue-300">
-
-                          {result.coverage.total_coverage?.toFixed(1)}%
-
-                        </span>
-
-                      </div>
-
-                      <div className="w-full bg-slate-600 rounded-full h-2">
-
-                        <div
-                          className="bg-blue-500 h-2 rounded-full"
-                          style={{
-                            width: `${Math.min(
-                              result.coverage.total_coverage || 0,
-                              100
-                            )}%`
-                          }}
-                        />
-
-                      </div>
-
-                    </div>
-
-                    <pre className="bg-slate-900 rounded-lg p-4 text-slate-300 overflow-auto max-h-96 text-sm">
-
-                      {JSON.stringify(
-                        result.coverage,
-                        null,
-                        2
-                      )}
-
-                    </pre>
-
-                  </div>
-                )}
-
-              </div>
-            )}
-
-
-            <button
-              onClick={() => {
-
-                setResult(null);
-
-                setJobId('');
-
-                setError(null);
-              }}
-
-              className="w-full px-6 py-3 bg-slate-700 hover:bg-slate-600 text-white rounded-lg transition"
-            >
-
-              Check Another Job
-
-            </button>
-
+        {error && (
+          <Card className="p-6 text-sm text-rose-600 dark:text-rose-400">{error}</Card>
+        )}
+
+        {!jobs && !error && (
+          <div className="space-y-3">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <Skeleton key={i} className="h-20" />
+            ))}
           </div>
         )}
 
-      </div>
+        {jobs && jobs.length === 0 && (
+          <Card className="p-12 text-center">
+            <p className="text-slate-500 dark:text-slate-400">No analyses yet.</p>
+            <Button className="mt-4" onClick={() => router.push("/analyze")}>
+              Analyze your first snippet <ArrowRight size={16} />
+            </Button>
+          </Card>
+        )}
 
+        {jobs && jobs.length > 0 && (
+          <div className="space-y-3">
+            {jobs.map((job) => (
+              <Card key={job.job_id} className="flex items-center justify-between gap-4 p-4">
+                <Link href={`/results/${job.job_id}`} className="min-w-0 flex-1">
+                  <div className="flex items-center gap-3">
+                    <Badge tone={statusTone(job.status)}>
+                      {job.status === "IN_PROGRESS" || job.status === "PENDING" ? (
+                        <Loader2 size={12} className="animate-spin" />
+                      ) : null}
+                      {job.status}
+                    </Badge>
+                    <span className="truncate text-sm text-slate-500 dark:text-slate-400">
+                      {job.source_type}
+                    </span>
+                  </div>
+                  <div className="mt-1.5 flex items-center gap-3 text-xs text-slate-400">
+                    <span className="inline-flex items-center gap-1">
+                      <Clock size={12} /> {timeAgo(job.created_at)}
+                    </span>
+                    {job.stats && (
+                      <span>
+                        {job.stats.test_cases} tests · {job.stats.functions_analyzed} functions
+                      </span>
+                    )}
+                    <code className="truncate">{job.job_id.slice(0, 8)}</code>
+                  </div>
+                </Link>
+                <button
+                  type="button"
+                  onClick={() => remove(job.job_id)}
+                  className="shrink-0 rounded-lg p-2 text-slate-400 transition-colors hover:bg-rose-50 hover:text-rose-500 dark:hover:bg-rose-950/30"
+                  aria-label="Delete analysis"
+                >
+                  <Trash2 size={16} />
+                </button>
+              </Card>
+            ))}
+          </div>
+        )}
+      </main>
+      <Footer />
     </div>
   );
 }

@@ -1,241 +1,147 @@
-#  Automated Test Case Generator Agent
+<div align="center">
 
-> **Capgemini Exceller AgentifAI Buildathon** · Team **Osaka Vise**
+# 🧪 TestCaseAI
 
-[![Live App](https://img.shields.io/badge/Live%20App-Vercel-black?style=flat-square&logo=vercel)](https://automatedtestcasegeneratoragent.vercel.app/)
-[![API Docs](https://img.shields.io/badge/API%20Docs-FastAPI-009688?style=flat-square&logo=fastapi)](https://automated-test-case-generator-agent.onrender.com/docs)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue?style=flat-square)](LICENSE)
-[![CI](https://img.shields.io/badge/CI-GitHub%20Actions-2088FF?style=flat-square&logo=githubactions)](https://github.com/Aaronrao989/Automated_Test_Case_Generator_Agent/actions)
+**AI-powered test-case generation for Python — analyze code, generate pytest suites, run them, and measure real coverage.**
 
----
+Next.js · FastAPI · Groq · PostgreSQL — deployable entirely on free tiers.
 
-## 🎯 Problem Statement
-
-> Teams lack sufficient tests, causing regressions. Build an agent that generates unit/integration test cases from code or user stories.
-
-This agent analyzes source code repositories and code snippets to **automatically generate, execute, and report on test cases** — solving the test-coverage gap without manual effort.
+</div>
 
 ---
 
-## ✨ Features
+## Overview
 
-| Capability | Description |
+TestCaseAI takes a code snippet, a public GitHub repository, or a ZIP upload,
+extracts its functions, identifies edge cases, uses a Groq LLM to generate
+comprehensive `pytest` tests, executes them in an isolated environment, and
+reports real line coverage — all through a clean, modern web UI.
+
+It is a public demo (no login) designed to run on **Vercel + Render + Supabase**
+free tiers with **no Docker, Redis, Celery, or paid infrastructure**.
+
+## Features
+
+- 🤖 **AI test generation** — Groq-powered pytest with happy paths, boundaries, and `pytest.raises`
+- 🔍 **Edge-case detection** — null, boundary, type-mismatch, and exception analysis
+- ▶️ **Isolated execution** — each job runs in its own temp dir; tests run exactly once
+- 📊 **Real coverage** — collected from the same run (not estimated)
+- 📈 **Live progress** — staged status (scan → extract → generate → run → coverage) with elapsed time
+- 🗂️ **Rich results** — tabs, syntax highlighting, copy, download tests as ZIP, coverage export
+- 🌓 **Dark / light mode**, responsive design, loading skeletons, empty/error states
+- 🕘 **History** — recent analyses with quick lookup and delete
+- 🔒 **Hardened** — SSRF-guarded cloning, zip-slip protection, size-limited uploads, in-memory rate limiting
+
+## Architecture
+
+```
+Next.js (Vercel)  →  FastAPI + BackgroundTasks (Render)  →  PostgreSQL (Supabase)
+                                  │
+                                  └─→ Groq LLM (batched requests)
+```
+
+Async work uses FastAPI `BackgroundTasks` in-process. Progress is written to the
+job row and polled by the client. See [ARCHITECTURE.md](ARCHITECTURE.md).
+
+## Tech stack
+
+| Layer | Tech |
 |---|---|
-| 🤖 AI Test Generation | Groq LLM generates pytest-ready test cases from any Python code |
-| 🔍 Edge Case Detection | Identifies boundary conditions, null inputs, type errors, and more |
-| 📦 Repository Analysis | Scans entire repos or ZIP uploads and extracts all testable functions |
-| ▶️ Automatic Execution | Runs generated tests via pytest and captures pass/fail results |
-| 📊 Coverage Reporting | Computes and visualizes code coverage metrics |
-| 🔄 CI Integration | GitHub Actions pipeline for automated testing on every push |
-| 🌐 Interactive Dashboard | Real-time job status, test viewer, and execution logs |
-| 🌍 Multi-language Detection | Identifies languages and project structure automatically |
+| Frontend | Next.js 16 (App Router), React 18, TypeScript, Tailwind CSS, lucide-react |
+| Backend | FastAPI, SQLAlchemy 2, Pydantic v2, Uvicorn |
+| LLM | Groq (`openai/gpt-oss-120b` / `llama-3.1-8b-instant`) |
+| Database | PostgreSQL (Supabase or Render); SQLite for local/dev |
+| CI | GitHub Actions (pytest + lint + build) |
 
----
-
-## 🏗️ Architecture
+## Folder structure
 
 ```
-Frontend (Next.js + Vercel)
-        ↓
-FastAPI Backend (Render)
-        ↓
-BackgroundTasks (async, no Celery/Redis)
-        ↓
-Groq LLM (llama-3.1-8b-instant)
-        ↓
-PostgreSQL (Render)
+backend/
+  app/
+    main.py              FastAPI app, CORS, health, startup reconciliation
+    core/                config, in-memory rate limiter
+    db/database.py       engine + session
+    models/              AnalysisJob (single table, JSON results)
+    schemas/             request/response models
+    api/                 analysis routes (+ aggregate router)
+    services/            background analysis worker
+    agents/              orchestrator, repo_scanner, edge_case_finder, llm_test_generator
+  tests/                 pytest suite
+frontend/
+  src/
+    app/                 landing, /analyze, /results/[jobId], /dashboard
+    components/          nav, footer, theme-toggle, ui/*
+    lib/                 api client, types, highlight, zip, utils
 ```
 
-### AI Pipeline
+## Local setup
 
-```
-Input (Repo / Code Snippet)
-        ↓
-  Repository Scanner
-        ↓
-  Function Extraction
-        ↓
-  Edge Case Detection
-        ↓
-  LLM Test Generation
-        ↓
-    Pytest Execution
-        ↓
-  Coverage Analysis
-        ↓
-  Dashboard Reporting
-```
-
----
-
-## 🛠️ Tech Stack
-
-**Backend** · FastAPI · SQLAlchemy · PostgreSQL · Groq API · Pytest · Python 3.11 · BackgroundTasks
-
-**Frontend** · Next.js 16 · TypeScript · TailwindCSS · Lucide React
-
-**Deployment** · Vercel (Frontend) · Render (Backend + PostgreSQL) · GitHub Actions (CI/CD)
-
----
-
-## 📡 API Reference
-
-### `POST /api/v1/analysis/start`
-Start analysis on a code snippet or repository.
-
-```json
-{
-  "source_type": "code_snippet",
-  "source_data": "def add(a, b): return a + b"
-}
-```
-
-### `POST /api/v1/analysis/upload`
-Upload a ZIP archive of your repository for full project analysis.
-
-### `GET /api/v1/analysis/{job_id}`
-Poll for results — returns generated tests, execution logs, and coverage metrics.
-
-### `GET /health`
-Health check endpoint.
-
----
-
-## 🧪 Example Output
-
-Given:
-```python
-def divide(a, b):
-    return a / b
-```
-
-The agent generates:
-- ✅ Happy path tests
-- ✅ Zero division tests
-- ✅ Invalid type tests
-- ✅ Boundary tests
-- ✅ Negative number tests
-
----
-
-## 📂 Project Structure
-
-```
-Automated_Test_Case_Generator_Agent/
-├── backend/
-│   └── app/
-│       ├── agents/
-│       │   ├── orchestrator.py
-│       │   ├── llm_test_generator.py
-│       │   ├── edge_case_finder.py
-│       │   ├── repo_scanner.py
-│       │   ├── coverage.py
-│       │   ├── test_executor.py
-│       │   └── code_understanding.py
-│       ├── api/
-│       ├── core/
-│       ├── db/
-│       ├── models/
-│       ├── schemas/
-│       └── main.py
-├── frontend/
-│   └── src/app/
-│       ├── upload/
-│       ├── dashboard/
-│       ├── tests/
-│       └── page.tsx
-└── .github/workflows/ci.yml
-```
-
----
-
-## 🚀 Local Setup
-
-### Backend
-
+**Backend**
 ```bash
-git clone https://github.com/Aaronrao989/Automated_Test_Case_Generator_Agent.git
-cd Automated_Test_Case_Generator_Agent/backend
-
-python -m venv venv
-source venv/bin/activate       # Windows: venv\Scripts\activate
-
+cd backend
+python3 -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
-uvicorn app.main:app --reload
-# → http://localhost:8000
+cp .env.example .env      # leave GROQ_API_KEY empty for offline "demo" mode
+uvicorn app.main:app --reload    # http://localhost:8000  (docs at /docs)
 ```
 
-### Frontend
+**Frontend**
+```bash
+cd frontend
+npm install
+cp .env.example .env.local   # set NEXT_PUBLIC_API_URL=http://localhost:8000
+npm run dev                  # http://localhost:3000
+```
+
+## Environment variables
+
+**Backend** (`backend/.env`): `DATABASE_URL`, `GROQ_API_KEY`, `LLM_PROVIDER`,
+`GROQ_MODEL`, `CORS_ORIGINS`, `ENVIRONMENT` (optional: `LLM_BATCH_SIZE`,
+`MAX_FILE_SIZE`, `MAX_FUNCTIONS_TO_ANALYZE`).
+
+**Frontend** (`frontend/.env.local`): `NEXT_PUBLIC_API_URL`.
+
+## API
+
+| Method | Path | Purpose |
+|---|---|---|
+| POST | `/api/v1/analysis/start` | Analyze a snippet or GitHub URL |
+| POST | `/api/v1/analysis/upload` | Analyze an uploaded ZIP |
+| GET | `/api/v1/analysis` | List recent analyses |
+| GET | `/api/v1/analysis/{job_id}` | Poll status/stage/results |
+| DELETE | `/api/v1/analysis/{job_id}` | Delete a job |
+| GET | `/health` | Health check |
+
+## Deployment
+
+- **Database:** create a Supabase/Render Postgres, copy the pooled URL into `DATABASE_URL`.
+- **Backend (Render Web Service):** root `backend/`, build `pip install -r requirements.txt`,
+  start `uvicorn app.main:app --host 0.0.0.0 --port $PORT`. Set env vars from `.env.example`.
+- **Frontend (Vercel):** root `frontend/`, set `NEXT_PUBLIC_API_URL` to the Render URL,
+  then add that Vercel domain to the backend's `CORS_ORIGINS`.
+
+## Screenshots
+
+<!-- Add screenshots of the landing page, analyze flow, and results page here -->
+| Landing | Analyze | Results |
+|---|---|---|
+| _screenshot_ | _screenshot_ | _screenshot_ |
+
+## Tests
 
 ```bash
-cd ../frontend
-npm install
-npm run dev
-# → http://localhost:3000
+cd backend && pytest tests/ -v
+cd frontend && npm run lint && npm run build
 ```
 
-### Environment Variables
+## Future scope
 
-**Backend** (`.env`):
-```env
-DATABASE_URL=postgresql://...
-GROQ_API_KEY=your_groq_key
-LLM_PROVIDER=groq
-GROQ_MODEL=llama-3.1-8b-instant
-```
+- Containerized sandbox for executing arbitrary-dependency repos
+- JavaScript/TypeScript test generation & execution
+- Mutation testing and coverage heatmaps
+- Multi-file dependency resolution
+- Optional accounts + persistent per-user history
 
-**Frontend** (`.env.local`):
-```env
-NEXT_PUBLIC_API_URL=https://automated-test-case-generator-agent.onrender.com
-```
+## License
 
----
-
-## 🔄 CI/CD
-
-GitHub Actions runs on every push:
-- Backend test suite (`pytest tests/ -v`)
-- Frontend lint + build verification
-- Coverage checks
-
----
-
-## 📈 Evaluation Criteria — How We Address Each
-
-| Criterion | Implementation |
-|---|---|
-| **Test relevance & coverage** | LLM generates context-aware tests with pytest fixtures and assertions |
-| **Correctness** | Tests are executed automatically; only passing tests surface in reports |
-| **Edge case handling** | Dedicated `edge_case_finder.py` agent identifies boundary and failure conditions |
-| **Maintainability** | Generated tests follow pytest conventions with clear naming and docstrings |
-| **CI integration** | GitHub Actions workflow included; API-first design supports any CI tool |
-
----
-
-## 🛣️ Roadmap
-
-- [ ] Advanced coverage heatmaps
-- [ ] Multi-file dependency analysis
-- [ ] Java & Go execution support
-- [ ] Mutation testing
-- [ ] Real-time streaming updates
-- [ ] Authentication & team workspaces
-- [ ] Persistent history dashboard
-
----
-
-## 👥 Team — Osaka Vise
-
-| Name | Role |
-|---|---|
-| **Aaron Rao** | AI Testing & Validation |
-| **Aditi Karn** | System Architecture Lead |
-| **Aryan Gupta** | UI/UX Developer |
-| **Nitin Chugh** | Backend & API Engineer |
-| **Vidushi Srivastava** | Presentation Lead |
-
----
-
-## 📄 License
-
-MIT © Team Osaka Vise — Built for the Capgemini Exceller AgentifAI Buildathon
+MIT © Team Osaka Vise — built for the Capgemini Exceller AgentifAI Buildathon.

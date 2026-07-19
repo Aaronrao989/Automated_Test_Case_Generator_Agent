@@ -1,126 +1,225 @@
-'use client';
+import Link from "next/link";
+import {
+  ArrowRight,
+  Boxes,
+  Braces,
+  FileArchive,
+  Github,
+  Gauge,
+  ListChecks,
+  PlayCircle,
+  ScanSearch,
+  ShieldCheck,
+  Sparkles,
+  TerminalSquare,
+} from "lucide-react";
+import { Nav } from "@/components/nav";
+import { Footer } from "@/components/footer";
+import { Card } from "@/components/ui/card";
+import { ButtonLink } from "@/components/ui/button";
 
-import Link from 'next/link';
-import { ArrowRight, Code, Zap, BarChart3 } from 'lucide-react';
+const FEATURES = [
+  { icon: Braces, title: "AI test generation", desc: "Groq-powered pytest generation with happy paths, boundaries, and exceptions." },
+  { icon: ScanSearch, title: "Edge-case detection", desc: "Automatic null, boundary, type-mismatch, and exception analysis per function." },
+  { icon: PlayCircle, title: "Isolated execution", desc: "Every job runs in its own isolated temp dir — tests actually run, once." },
+  { icon: Gauge, title: "Coverage reporting", desc: "Real line coverage collected from the same test run, not estimated." },
+  { icon: ShieldCheck, title: "Safe by design", desc: "SSRF-guarded cloning, zip-slip protection, and size-limited uploads." },
+  { icon: TerminalSquare, title: "Clean pytest output", desc: "Copy or download runnable test modules with syntax highlighting." },
+];
 
-export default function Home() {
+const STEPS = [
+  { icon: FileArchive, title: "Provide code", desc: "Paste a snippet, drop a ZIP, or point at a public repo." },
+  { icon: ScanSearch, title: "We analyze", desc: "Functions are extracted and edge cases identified." },
+  { icon: Sparkles, title: "AI generates", desc: "Groq writes comprehensive pytest test modules." },
+  { icon: ListChecks, title: "Run & report", desc: "Tests execute and coverage is measured live." },
+];
+
+const INPUTS = [
+  { icon: Braces, title: "Python code", desc: "Paste any function or module." },
+  { icon: FileArchive, title: "ZIP upload", desc: "Drag & drop a project archive." },
+  { icon: Github, title: "GitHub repository", desc: "Analyze a public repo by URL." },
+];
+
+const OUTPUTS = [
+  { icon: TerminalSquare, title: "Generated tests" },
+  { icon: Gauge, title: "Coverage report" },
+  { icon: ScanSearch, title: "Edge cases" },
+  { icon: ListChecks, title: "Execution results" },
+];
+
+export default function LandingPage() {
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
-      {/* Navigation */}
-      <nav className="border-b border-slate-700 bg-slate-900/50 backdrop-blur-sm sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
-          <h2 className="text-2xl font-bold text-white">TestCaseAI</h2>
-          <div className="flex gap-4">
-            <Link 
-              href="/upload" 
-              className="px-4 py-2 rounded-lg bg-purple-600 hover:bg-purple-700 text-white transition"
-            >
-              Get Started
-            </Link>
-          </div>
-        </div>
-      </nav>
+    <div className="flex min-h-screen flex-col">
+      <Nav />
 
-      {/* Hero Section */}
-      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20">
-        <div className="text-center">
-          <h1 className="text-5xl md:text-7xl font-bold text-white mb-6">
-            AI-Powered Test Case Generation
+      {/* Hero */}
+      <section className="relative overflow-hidden">
+        <div className="pointer-events-none absolute inset-0 -z-10 bg-gradient-to-b from-indigo-50 to-transparent dark:from-indigo-950/30" />
+        <div className="mx-auto max-w-4xl px-4 py-24 text-center sm:px-6">
+          <span className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
+            <Sparkles size={13} className="text-indigo-500" /> Powered by Groq LLMs
+          </span>
+          <h1 className="mt-6 text-4xl font-bold tracking-tight text-slate-900 sm:text-6xl dark:text-white">
+            Ship tested code,{" "}
+            <span className="bg-gradient-to-r from-indigo-500 to-violet-500 bg-clip-text text-transparent">
+              faster
+            </span>
           </h1>
-          <p className="text-xl text-slate-300 mb-12 max-w-3xl mx-auto">
-            Automatically generate comprehensive test cases, identify edge cases, and analyze code coverage using AI. Turn your source code into a complete test suite in seconds.
+          <p className="mx-auto mt-6 max-w-2xl text-lg text-slate-600 dark:text-slate-300">
+            TestCaseAI analyzes your Python code, finds edge cases, and generates runnable
+            pytest suites — then executes them and reports real coverage. No setup required.
           </p>
-          <div className="flex flex-col sm:flex-row gap-4 justify-center">
-            <Link 
-              href="/upload"
-              className="inline-flex items-center gap-2 px-8 py-4 bg-purple-600 hover:bg-purple-700 text-white font-semibold rounded-lg transition transform hover:scale-105"
-            >
-              Upload Repository <ArrowRight size={20} />
-            </Link>
-            <Link 
-              href="/dashboard"
-              className="inline-flex items-center gap-2 px-8 py-4 border-2 border-purple-600 text-purple-400 hover:bg-purple-600/10 font-semibold rounded-lg transition"
-            >
-              View Dashboard
-            </Link>
+          <div className="mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row">
+            <ButtonLink href="/analyze" size="lg">
+              Generate test cases <ArrowRight size={18} />
+            </ButtonLink>
+            <ButtonLink href="/dashboard" size="lg" variant="secondary">
+              View history
+            </ButtonLink>
           </div>
         </div>
       </section>
 
-      {/* Features Section */}
-      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20">
-        <h2 className="text-4xl font-bold text-white mb-16 text-center">Features</h2>
-        <div className="grid md:grid-cols-3 gap-8">
-          {/* Feature 1 */}
-          <div className="bg-slate-800/50 border border-slate-700 rounded-lg p-8 hover:border-purple-500 transition">
-            <Code className="text-purple-400 mb-4" size={32} />
-            <h3 className="text-xl font-bold text-white mb-3">Multi-Language Support</h3>
-            <p className="text-slate-300">
-              Supports Python, JavaScript, TypeScript, Java, Go, C++, and Rust. Analyze any codebase.
-            </p>
-          </div>
-
-          {/* Feature 2 */}
-          <div className="bg-slate-800/50 border border-slate-700 rounded-lg p-8 hover:border-purple-500 transition">
-            <Zap className="text-purple-400 mb-4" size={32} />
-            <h3 className="text-xl font-bold text-white mb-3">Edge Case Detection</h3>
-            <p className="text-slate-300">
-              Automatically identify potential edge cases, null/empty inputs, boundary conditions, and concurrency issues.
-            </p>
-          </div>
-
-          {/* Feature 3 */}
-          <div className="bg-slate-800/50 border border-slate-700 rounded-lg p-8 hover:border-purple-500 transition">
-            <BarChart3 className="text-purple-400 mb-4" size={32} />
-            <h3 className="text-xl font-bold text-white mb-3">Coverage Analysis</h3>
-            <p className="text-slate-300">
-              Get detailed code coverage reports and suggestions for missing test scenarios.
-            </p>
-          </div>
-        </div>
-      </section>
-
-      {/* How It Works */}
-      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20">
-        <h2 className="text-4xl font-bold text-white mb-16 text-center">How It Works</h2>
-        <div className="grid md:grid-cols-4 gap-8">
-          {['Upload', 'Analyze', 'Generate', 'Review'].map((step, i) => (
-            <div key={i} className="text-center">
-              <div className="w-16 h-16 bg-purple-600 rounded-full flex items-center justify-center text-2xl font-bold text-white mx-auto mb-4">
-                {i + 1}
-              </div>
-              <h3 className="text-lg font-semibold text-white mb-2">{step}</h3>
-              <p className="text-slate-400 text-sm">
-                {i === 0 && 'Upload your repository or code snippet'}
-                {i === 1 && 'AI analyzes code structure and semantics'}
-                {i === 2 && 'Generate comprehensive test cases'}
-                {i === 3 && 'Review and export your test suite'}
-              </p>
-            </div>
+      {/* Features */}
+      <Section id="features" title="Everything you need to test with confidence">
+        <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+          {FEATURES.map((f) => (
+            <Card key={f.title} className="p-6 transition-colors hover:border-indigo-300 dark:hover:border-indigo-700">
+              <f.icon className="text-indigo-500" size={22} />
+              <h3 className="mt-4 font-semibold text-slate-900 dark:text-white">{f.title}</h3>
+              <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">{f.desc}</p>
+            </Card>
           ))}
         </div>
-      </section>
+      </Section>
 
-      {/* CTA Section */}
-      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20 text-center">
-        <h2 className="text-4xl font-bold text-white mb-6">Ready to automate your testing?</h2>
-        <p className="text-xl text-slate-300 mb-10 max-w-2xl mx-auto">
-          Start generating test cases now and improve your code quality.
-        </p>
-        <Link 
-          href="/upload"
-          className="inline-flex items-center gap-2 px-8 py-4 bg-purple-600 hover:bg-purple-700 text-white font-semibold rounded-lg transition transform hover:scale-105"
-        >
-          Get Started Now <ArrowRight size={20} />
-        </Link>
-      </section>
-
-      {/* Footer */}
-      <footer className="border-t border-slate-700 bg-slate-900/50 mt-20 py-8">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center text-slate-400">
-          <p>&copy; 2026 Automated Test Case Generator. Powered by AI.</p>
+      {/* How it works */}
+      <Section id="how" title="How it works" subtle>
+        <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+          {STEPS.map((s, i) => (
+            <Card key={s.title} className="p-6">
+              <div className="flex items-center gap-3">
+                <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-100 text-sm font-semibold text-indigo-600 dark:bg-indigo-500/15 dark:text-indigo-300">
+                  {i + 1}
+                </span>
+                <s.icon size={18} className="text-slate-400" />
+              </div>
+              <h3 className="mt-4 font-semibold text-slate-900 dark:text-white">{s.title}</h3>
+              <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">{s.desc}</p>
+            </Card>
+          ))}
         </div>
-      </footer>
+      </Section>
+
+      {/* Inputs / Outputs */}
+      <Section id="io" title="Supported inputs & outputs">
+        <div className="grid gap-8 lg:grid-cols-2">
+          <div>
+            <h3 className="mb-4 text-sm font-semibold uppercase tracking-wide text-slate-500">Inputs</h3>
+            <div className="space-y-3">
+              {INPUTS.map((i) => (
+                <Card key={i.title} className="flex items-center gap-4 p-4">
+                  <i.icon className="text-indigo-500" size={20} />
+                  <div>
+                    <p className="font-medium text-slate-900 dark:text-white">{i.title}</p>
+                    <p className="text-sm text-slate-500 dark:text-slate-400">{i.desc}</p>
+                  </div>
+                </Card>
+              ))}
+            </div>
+          </div>
+          <div>
+            <h3 className="mb-4 text-sm font-semibold uppercase tracking-wide text-slate-500">Outputs</h3>
+            <div className="grid grid-cols-2 gap-3">
+              {OUTPUTS.map((o) => (
+                <Card key={o.title} className="flex items-center gap-3 p-4">
+                  <o.icon className="text-emerald-500" size={20} />
+                  <p className="font-medium text-slate-900 dark:text-white">{o.title}</p>
+                </Card>
+              ))}
+            </div>
+          </div>
+        </div>
+      </Section>
+
+      {/* Architecture */}
+      <Section id="architecture" title="Architecture" subtle>
+        <Card className="p-8">
+          <div className="flex flex-col items-stretch gap-4 md:flex-row md:items-center md:justify-between">
+            {[
+              { icon: Boxes, label: "Next.js", sub: "Vercel" },
+              { icon: TerminalSquare, label: "FastAPI", sub: "Render" },
+              { icon: Sparkles, label: "Groq LLM", sub: "Test gen" },
+              { icon: Gauge, label: "PostgreSQL", sub: "Supabase" },
+            ].map((node, i, arr) => (
+              <div key={node.label} className="flex flex-1 items-center gap-4">
+                <div className="flex flex-1 flex-col items-center rounded-lg border border-slate-200 bg-slate-50 p-4 text-center dark:border-slate-800 dark:bg-slate-900">
+                  <node.icon className="text-indigo-500" size={22} />
+                  <p className="mt-2 font-medium text-slate-900 dark:text-white">{node.label}</p>
+                  <p className="text-xs text-slate-500">{node.sub}</p>
+                </div>
+                {i < arr.length - 1 && (
+                  <ArrowRight className="hidden shrink-0 text-slate-300 md:block dark:text-slate-700" size={18} />
+                )}
+              </div>
+            ))}
+          </div>
+          <p className="mt-6 text-center text-sm text-slate-500 dark:text-slate-400">
+            Async work runs via FastAPI BackgroundTasks — no Docker, Redis, or paid infrastructure.
+          </p>
+        </Card>
+      </Section>
+
+      {/* CTA */}
+      <section className="px-4 py-20 sm:px-6">
+        <Card className="mx-auto max-w-4xl overflow-hidden border-indigo-200 bg-gradient-to-br from-indigo-50 to-violet-50 p-10 text-center dark:border-indigo-900/50 dark:from-indigo-950/40 dark:to-violet-950/40">
+          <h2 className="text-2xl font-bold text-slate-900 sm:text-3xl dark:text-white">
+            Ready to generate your test suite?
+          </h2>
+          <p className="mx-auto mt-3 max-w-xl text-slate-600 dark:text-slate-300">
+            Paste a function and get comprehensive, runnable pytest tests in seconds.
+          </p>
+          <div className="mt-8 flex flex-col justify-center gap-3 sm:flex-row">
+            <ButtonLink href="/analyze" size="lg">
+              Analyze code <ArrowRight size={18} />
+            </ButtonLink>
+            <Link
+              href="/analyze"
+              className="inline-flex items-center justify-center gap-2 rounded-lg px-6 py-3 text-base font-medium text-slate-700 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white"
+            >
+              Upload a project
+            </Link>
+          </div>
+        </Card>
+      </section>
+
+      <Footer />
     </div>
+  );
+}
+
+function Section({
+  id,
+  title,
+  subtle,
+  children,
+}: {
+  id: string;
+  title: string;
+  subtle?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <section
+      id={id}
+      className={subtle ? "bg-slate-50 dark:bg-slate-900/30" : undefined}
+    >
+      <div className="mx-auto max-w-6xl px-4 py-20 sm:px-6">
+        <h2 className="mb-10 text-center text-3xl font-bold tracking-tight text-slate-900 dark:text-white">
+          {title}
+        </h2>
+        {children}
+      </div>
+    </section>
   );
 }
