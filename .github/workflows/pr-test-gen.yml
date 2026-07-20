@@ -1,0 +1,53 @@
+name: PR Test Generation
+
+# Generates pytest tests for the Python files changed in a pull request and
+# posts them (with pass-rate + coverage) as a PR comment. Add a GROQ_API_KEY
+# repository secret for real LLM output; without it, runs in offline demo mode.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r backend/requirements.txt
+
+      - name: Determine changed Python files
+        id: changed
+        run: |
+          git fetch origin "${{ github.base_ref }}" --depth=1 || true
+          FILES=$(git diff --name-only "origin/${{ github.base_ref }}...HEAD" -- '**.py' \
+            | grep -vE '/(tests|evals)/' \
+            | grep -vE '(^|/)(test_|conftest)' \
+            | tr '\n' ' ')
+          echo "files=$FILES" >> "$GITHUB_OUTPUT"
+
+      - name: Generate tests
+        if: steps.changed.outputs.files != ''
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          LLM_PROVIDER: groq
+          PYTHONPATH: backend
+        run: |
+          python -m app.cli ${{ steps.changed.outputs.files }} --out pr-report.md
+
+      - name: Comment on PR
+        if: steps.changed.outputs.files != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh pr comment "${{ github.event.pull_request.number }}" --body-file pr-report.md

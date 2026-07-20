@@ -140,6 +140,14 @@ golden set of functions and scores it on relevance, generation rate, test
 pass-rate, and coverage — and runs in CI on every push. With a `GROQ_API_KEY`
 set it reports full pass-rate/coverage; offline it validates the pipeline.
 
+### CI / PR integration
+
+A **CLI** (`python -m app.cli <files> --out report.md`) generates tests for any
+Python files and emits a Markdown report. The **`PR Test Generation`** workflow
+(`.github/workflows/pr-test-gen.yml`) runs it on a pull request's changed
+`.py` files and posts the generated tests + pass-rate + coverage as a PR
+comment. Add a `GROQ_API_KEY` repository secret for real LLM output.
+
 ## Future scope
 
 - Containerized sandbox for executing arbitrary-dependency repos
