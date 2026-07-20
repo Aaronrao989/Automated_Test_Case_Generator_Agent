@@ -1,0 +1,38 @@
+[
+  {
+    "id": "add",
+    "code": "def add(a, b):\n    return a + b\n",
+    "expect_functions": ["add"],
+    "has_exception": false
+  },
+  {
+    "id": "divide",
+    "code": "def divide(a, b):\n    if b == 0:\n        raise ValueError('cannot divide by zero')\n    return a / b\n",
+    "expect_functions": ["divide"],
+    "has_exception": true
+  },
+  {
+    "id": "is_even",
+    "code": "def is_even(n):\n    return n % 2 == 0\n",
+    "expect_functions": ["is_even"],
+    "has_exception": false
+  },
+  {
+    "id": "factorial",
+    "code": "def factorial(n):\n    if n < 0:\n        raise ValueError('negative')\n    result = 1\n    for i in range(2, n + 1):\n        result *= i\n    return result\n",
+    "expect_functions": ["factorial"],
+    "has_exception": true
+  },
+  {
+    "id": "clamp",
+    "code": "def clamp(value, low, high):\n    if low > high:\n        raise ValueError('low > high')\n    return max(low, min(value, high))\n",
+    "expect_functions": ["clamp"],
+    "has_exception": true
+  },
+  {
+    "id": "multi",
+    "code": "def to_upper(text):\n    return text.upper()\n\ndef word_count(text):\n    return len(text.split())\n",
+    "expect_functions": ["to_upper", "word_count"],
+    "has_exception": false
+  }
+]

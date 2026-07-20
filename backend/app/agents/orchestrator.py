@@ -12,6 +12,7 @@ import logging
 import os
 import re
 import subprocess
+import sys
 import tempfile
 import urllib.parse
 from typing import Any, Callable, Dict, List, Optional
@@ -219,7 +220,9 @@ class TestGenerationOrchestrator:
         try:
             process = subprocess.run(
                 [
-                    "python", "-m", "pytest", *test_files,
+                    # sys.executable (not "python") guarantees the interpreter
+                    # running the app — the one that actually has pytest/cov.
+                    sys.executable, "-m", "pytest", *test_files,
                     "-v", "--tb=short", "-p", "no:cacheprovider",
                     f"--cov={MODULE_NAME}", f"--cov-report=json:{coverage_path}",
                 ],

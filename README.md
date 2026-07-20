@@ -127,12 +127,18 @@ npm run dev                  # http://localhost:3000
 |---|---|---|
 | _screenshot_ | _screenshot_ | _screenshot_ |
 
-## Tests
+## Tests & evaluation
 
 ```bash
-cd backend && pytest tests/ -v
+cd backend && pytest tests/ -v          # unit + integration tests
+cd backend && python -m evals.run_eval  # score the generator on a golden dataset
 cd frontend && npm run lint && npm run build
 ```
+
+The **evaluation harness** (`backend/evals/`) runs the generator against a
+golden set of functions and scores it on relevance, generation rate, test
+pass-rate, and coverage — and runs in CI on every push. With a `GROQ_API_KEY`
+set it reports full pass-rate/coverage; offline it validates the pipeline.
 
 ## Future scope
 

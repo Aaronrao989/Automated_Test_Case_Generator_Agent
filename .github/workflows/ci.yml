@@ -28,6 +28,11 @@ jobs:
           cd backend
           pytest tests/ -v --cov=app
 
+      - name: Run evaluation harness (golden dataset)
+        run: |
+          cd backend
+          python -m evals.run_eval
+
   frontend-build:
     runs-on: ubuntu-latest
     steps:
