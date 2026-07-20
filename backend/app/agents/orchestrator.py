@@ -17,6 +17,7 @@ import tempfile
 import urllib.parse
 from typing import Any, Callable, Dict, List, Optional
 
+from app.agents.agent_trace import AgentTrace
 from app.agents.edge_case_finder import EdgeCaseFinderAgent
 from app.agents.llm_test_generator import LLMTestGenerator
 from app.agents.repo_scanner import RepoScannerAgent
@@ -36,6 +37,7 @@ class TestGenerationOrchestrator:
         self.edge_case_finder = EdgeCaseFinderAgent()
         self.llm = LLMTestGenerator()
         self._on_stage = on_stage
+        self.trace = AgentTrace()
 
     def _stage(self, stage: str) -> None:
         if self._on_stage:
@@ -51,7 +53,9 @@ class TestGenerationOrchestrator:
         self._stage("extracting_functions")
         with tempfile.TemporaryDirectory(prefix="atcg_") as workdir:
             self._write_module(workdir, source_code)
-            functions = self._extract_python_functions(source_code, f"{MODULE_NAME}.py")
+            with self.trace.tool("extract_functions") as step:
+                functions = self._extract_python_functions(source_code, f"{MODULE_NAME}.py")
+                step["summary"] = f"{len(functions)} function(s) extracted"
             return self._run_pipeline(
                 workdir, source_code, functions, {"python": 1}, files_scanned=1
             )
@@ -73,16 +77,22 @@ class TestGenerationOrchestrator:
     # Repository analysis (zip / clone)
     # ------------------------------------------------------------------
     def _analyze_repository(self, repo_path: str) -> Dict[str, Any]:
-        structure = RepoScannerAgent(repo_path).scan()
+        with self.trace.tool("scan_repository") as step:
+            structure = RepoScannerAgent(repo_path).scan()
+            langs = ", ".join(structure.get("languages", {}).keys()) or "none"
+            step["summary"] = f"{structure.get('total_files', 0)} file(s); languages: {langs}"
+
         source_files = [
             path
             for path in structure.get("files", [])
-            if path.endswith((".py", ".js", ".ts"))
+            if path.endswith((".py", ".ts", ".js"))
         ][: settings.max_files_to_analyze]
 
         self._stage("extracting_functions")
         combined_source = ""
         functions: List[Dict[str, Any]] = []
+        _extract = self.trace.tool("extract_functions")
+        _extract_step = _extract.__enter__()
         for rel_path in source_files:
             try:
                 with open(os.path.join(repo_path, rel_path), "r", encoding="utf-8", errors="ignore") as handle:
@@ -95,6 +105,9 @@ class TestGenerationOrchestrator:
             combined_source += "\n\n" + content
             if rel_path.endswith(".py"):
                 functions.extend(self._extract_python_functions(content, rel_path))
+
+        _extract_step["summary"] = f"{len(functions)} function(s) from {len(source_files)} file(s)"
+        _extract.__exit__(None, None, None)
 
         with tempfile.TemporaryDirectory(prefix="atcg_") as workdir:
             self._write_module(workdir, combined_source)
@@ -121,13 +134,28 @@ class TestGenerationOrchestrator:
         functions = functions[: settings.max_functions_to_analyze]
 
         self._stage("finding_edge_cases")
-        edge_cases = self._collect_edge_cases(functions)
+        with self.trace.tool("detect_edge_cases") as step:
+            edge_cases = self._collect_edge_cases(functions)
+            step["summary"] = f"{len(edge_cases)} edge case(s) across {len(functions)} function(s)"
 
         self._stage("generating_tests")
-        generated_tests, test_files = self._generate_tests(workdir, functions)
+        with self.trace.tool("generate_tests") as step:
+            generated_tests, test_files = self._generate_tests(workdir, functions)
+            engine = settings.groq_model if settings.has_groq_key else "offline demo"
+            step["summary"] = f"{len(generated_tests)} test module(s) via {engine}"
 
         self._stage("running_tests")
-        test_results, coverage = self._execute_tests(workdir, test_files)
+        with self.trace.tool("execute_tests") as step:
+            test_results, coverage = self._execute_tests(workdir, test_files)
+            passed = sum(1 for r in test_results if r.get("status") == "passed")
+            step["summary"] = f"{passed}/{len(test_results)} test module(s) passed"
+
+        with self.trace.tool("compute_coverage") as step:
+            step["summary"] = (
+                f"{coverage.get('total_coverage', 0)}% line coverage"
+                if coverage.get("executed")
+                else "not executed (external dependencies)"
+            )
 
         total_test_cases = sum(
             len(re.findall(r"^\s*def test_", t["content"], re.MULTILINE))
@@ -152,6 +180,8 @@ class TestGenerationOrchestrator:
             "test_results": test_results,
             "coverage": coverage,
             "llm_provider": settings.llm_provider,
+            "agent_trace": self.trace.steps,
+            "tools": self.trace.catalog(),
         }
 
     def _collect_edge_cases(self, functions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:

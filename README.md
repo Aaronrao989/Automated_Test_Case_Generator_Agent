@@ -22,6 +22,7 @@ free tiers with **no Docker, Redis, Celery, or paid infrastructure**.
 
 ## Features
 
+- 🧠 **Agentic & observable** — an orchestrating agent invokes named tools (scan → extract → detect edge cases → generate → execute → cover) and records a full **tool-call trace** (status + timing) shown in the UI
 - 🤖 **AI test generation** — Groq-powered pytest with happy paths, boundaries, and `pytest.raises`
 - 🔍 **Edge-case detection** — null, boundary, type-mismatch, and exception analysis
 - ▶️ **Isolated execution** — each job runs in its own temp dir; tests run exactly once

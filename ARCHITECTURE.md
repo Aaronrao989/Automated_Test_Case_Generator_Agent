@@ -13,6 +13,16 @@ A two-tier application deployable entirely on free tiers:
 No Docker, Redis, Celery, broker, or long-running worker. This is a public demo
 with **no authentication**.
 
+## Agentic design
+
+The `TestGenerationOrchestrator` acts as an **agent** that invokes a fixed
+catalog of **tools** — `scan_repository`, `extract_functions`,
+`detect_edge_cases`, `generate_tests`, `execute_tests`, `compute_coverage`
+(see `agents/agent_trace.py`). Every run records a **tool-call trace** (name,
+description, status, duration, result summary) which is returned in the API
+response (`agent_trace`, `tools`) and rendered as a timeline in the UI. This
+makes the pipeline observable and explainable rather than a black box.
+
 ## Request lifecycle
 
 ```

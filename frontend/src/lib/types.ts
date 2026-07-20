@@ -51,6 +51,19 @@ export interface Stats {
   test_cases: number;
 }
 
+export interface AgentStep {
+  tool: string;
+  description: string;
+  status: string;
+  summary: string;
+  duration: number;
+}
+
+export interface AgentTool {
+  name: string;
+  description: string;
+}
+
 export interface AnalysisResult {
   job_id: string;
   status: JobStatus;
@@ -68,6 +81,8 @@ export interface AnalysisResult {
   tests?: GeneratedTest[];
   test_results?: TestResult[];
   coverage?: Coverage;
+  agent_trace?: AgentStep[];
+  tools?: AgentTool[];
 }
 
 export interface StartResponse {

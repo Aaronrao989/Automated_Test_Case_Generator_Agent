@@ -10,6 +10,7 @@ import {
   FileCode2,
   Package,
   Search,
+  Wrench,
 } from "lucide-react";
 import { Nav } from "@/components/nav";
 import { Footer } from "@/components/footer";
@@ -101,8 +102,10 @@ function CompletedView({
     if (files.length) download("generated-tests.zip", createZip(files), "application/zip");
   };
 
+  const trace = result.agent_trace ?? [];
   const tabs = [
     { id: "overview", label: "Overview" },
+    { id: "agent", label: "Agent", count: trace.length },
     { id: "functions", label: "Functions", count: functions.length },
     { id: "edge", label: "Edge cases", count: edgeCases.length },
     { id: "tests", label: "Tests", count: tests.length },
@@ -151,6 +154,41 @@ function CompletedView({
               </div>
             </Card>
           )}
+        </TabPanel>
+      )}
+
+      {tab === "agent" && (
+        <TabPanel>
+          <Card className="p-6">
+            <div className="mb-5 flex items-center gap-2">
+              <Wrench size={16} className="text-indigo-500" />
+              <h2 className="font-semibold text-slate-900 dark:text-white">
+                Agent tool trace
+              </h2>
+              <span className="text-sm text-slate-500 dark:text-slate-400">
+                {trace.length} tools invoked
+              </span>
+            </div>
+            <ol className="relative space-y-4 border-l border-slate-200 pl-6 dark:border-slate-800">
+              {trace.map((step, i) => (
+                <li key={i} className="relative">
+                  <span
+                    className={`absolute -left-[27px] top-1 h-3 w-3 rounded-full ring-4 ring-white dark:ring-slate-900 ${
+                      step.status === "ok" ? "bg-emerald-500" : "bg-rose-500"
+                    }`}
+                  />
+                  <div className="flex flex-wrap items-center gap-2">
+                    <code className="text-sm font-semibold text-indigo-600 dark:text-indigo-400">
+                      {step.tool}
+                    </code>
+                    <span className="text-xs tabular-nums text-slate-400">{step.duration}s</span>
+                  </div>
+                  <p className="text-xs text-slate-400">{step.description}</p>
+                  <p className="mt-0.5 text-sm text-slate-700 dark:text-slate-300">{step.summary}</p>
+                </li>
+              ))}
+            </ol>
+          </Card>
         </TabPanel>
       )}
 
