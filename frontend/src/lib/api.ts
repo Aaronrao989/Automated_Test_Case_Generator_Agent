@@ -1,6 +1,7 @@
 import type { AnalysisResult, RecentJob, StartResponse } from "./types";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+// Strip any trailing slash so we never build "https://host//api/v1/...".
+const API_URL = (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000").replace(/\/+$/, "");
 
 async function parseError(res: Response): Promise<string> {
   try {

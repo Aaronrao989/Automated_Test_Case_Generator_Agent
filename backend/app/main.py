@@ -38,9 +38,12 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origin_list,
-    allow_credentials=True,
-    allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type"],
+    # Also accept any Vercel domain (production + preview deployments) so the
+    # public demo works without hand-matching exact origins.
+    allow_origin_regex=r"https://([a-z0-9-]+\.)*vercel\.app",
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 app.include_router(router)

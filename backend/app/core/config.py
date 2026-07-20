@@ -61,7 +61,8 @@ class Settings(BaseSettings):
 
     @property
     def cors_origin_list(self) -> List[str]:
-        return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+        # Strip whitespace and any trailing slash so exact-match works.
+        return [o.strip().rstrip("/") for o in self.cors_origins.split(",") if o.strip()]
 
     @field_validator("database_url")
     @classmethod
