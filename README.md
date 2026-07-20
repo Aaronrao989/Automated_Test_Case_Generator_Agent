@@ -1,162 +1,226 @@
 <div align="center">
 
-# 🧪 TestCaseAI
+<h1>🧪 TestCaseAI</h1>
 
-**AI-powered test-case generation for Python — analyze code, generate pytest suites, run them, and measure real coverage.**
+### AI agent that generates, runs, and measures your Python tests
 
-Next.js · FastAPI · Groq · PostgreSQL — deployable entirely on free tiers.
+Paste a function, a GitHub repo, or a ZIP → get comprehensive **pytest** suites,
+real **coverage**, and an observable **agent tool-trace** — deployed entirely on free tiers.
+
+<br/>
+
+[![Live App](https://img.shields.io/badge/▶_Live_Demo-000?style=for-the-badge&logo=vercel&logoColor=white)](https://automated-test-case-generator-agent.vercel.app/)
+&nbsp;
+[![API Docs](https://img.shields.io/badge/API_Docs-009688?style=for-the-badge&logo=fastapi&logoColor=white)](https://automated-test-case-generator-agent.onrender.com/docs)
+&nbsp;
+[![Repo](https://img.shields.io/badge/Source-181717?style=for-the-badge&logo=github&logoColor=white)](https://github.com/Aaronrao989/Automated_Test_Case_Generator_Agent)
+
+<br/>
+
+![Next.js](https://img.shields.io/badge/Next.js_16-000?logo=next.js&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)
+![Python](https://img.shields.io/badge/Python_3.11-3776AB?logo=python&logoColor=white)
+![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white)
+![Groq](https://img.shields.io/badge/Groq_LLM-F55036?logo=groq&logoColor=white)
+![Postgres](https://img.shields.io/badge/PostgreSQL-4169E1?logo=postgresql&logoColor=white)
+![License](https://img.shields.io/badge/License-MIT-blue)
 
 </div>
 
 ---
 
-## Overview
+## ✨ Overview
 
-TestCaseAI takes a code snippet, a public GitHub repository, or a ZIP upload,
-extracts its functions, identifies edge cases, uses a Groq LLM to generate
-comprehensive `pytest` tests, executes them in an isolated environment, and
-reports real line coverage — all through a clean, modern web UI.
+**TestCaseAI** is an agentic developer tool for the *"Teams lack sufficient tests, causing
+regressions"* problem. Give it code and it acts as an **agent that invokes a sequence of
+tools** — scan → extract functions → detect edge cases → generate tests → execute → measure
+coverage — then shows you the whole trace, the generated tests, and real results.
 
-It is a public demo (no login) designed to run on **Vercel + Render + Supabase**
-free tiers with **no Docker, Redis, Celery, or paid infrastructure**.
+> 🏆 Built by **Team Osaka Vise** for the **Capgemini Exceller AgentifAI Buildathon 2026** (Problem #38).
 
-## Features
+---
 
-- 🧠 **Agentic & observable** — an orchestrating agent invokes named tools (scan → extract → detect edge cases → generate → execute → cover) and records a full **tool-call trace** (status + timing) shown in the UI
-- 🤖 **AI test generation** — Groq-powered pytest with happy paths, boundaries, and `pytest.raises`
-- 🔍 **Edge-case detection** — null, boundary, type-mismatch, and exception analysis
-- ▶️ **Isolated execution** — each job runs in its own temp dir; tests run exactly once
-- 📊 **Real coverage** — collected from the same run (not estimated)
-- 📈 **Live progress** — staged status (scan → extract → generate → run → coverage) with elapsed time
-- 🗂️ **Rich results** — tabs, syntax highlighting, copy, download tests as ZIP, coverage export
-- 🌓 **Dark / light mode**, responsive design, loading skeletons, empty/error states
-- 🕘 **History** — recent analyses with quick lookup and delete
-- 🔒 **Hardened** — SSRF-guarded cloning, zip-slip protection, size-limited uploads, in-memory rate limiting
+## 🎥 Screenshots
 
-## Architecture
+> _Add images to `docs/screenshots/` and they'll render here._
 
+| Landing | Results & Coverage | Agent Trace |
+|:---:|:---:|:---:|
+| ![Landing](docs/screenshots/landing.png) | ![Results](docs/screenshots/results.png) | ![Agent trace](docs/screenshots/agent-trace.png) |
+
+---
+
+## 🚀 Features
+
+|  |  |
+|---|---|
+| 🧠 **Agentic & observable** | An orchestrating agent invokes 6 named tools and records a full **tool-call trace** (status + timing), shown live in the UI |
+| 🤖 **AI test generation** | Groq-powered pytest — happy paths, boundaries, invalid inputs, and `pytest.raises` |
+| 🔍 **Edge-case detection** | Null, boundary, type-mismatch, and exception analysis per function |
+| ▶️ **Isolated execution** | Each job runs in its own temp dir; tests execute exactly once |
+| 📊 **Real coverage** | Line coverage collected from the same run — not estimated |
+| 📈 **Live progress** | Staged status with elapsed time, polled from the backend |
+| 🗂️ **Rich results** | Tabs, syntax highlighting, copy, **download tests as ZIP**, coverage export |
+| 🌓 **Dark / light mode** | Responsive, accessible, with skeletons and empty/error states |
+| 🧪 **Eval harness + CI** | Golden-dataset scoring (relevance / pass-rate / coverage) enforced on every push |
+| 🔒 **Hardened** | SSRF-guarded cloning, zip-slip protection, size-limited uploads, in-memory rate limiting |
+
+---
+
+## 🏗️ Architecture
+
+```mermaid
+flowchart LR
+    U([User]) --> FE["Next.js<br/>(Vercel)"]
+    FE -->|HTTPS| BE["FastAPI + BackgroundTasks<br/>(Render)"]
+    FE -.poll status.-> BE
+    BE <-->|jobs + results JSON| DB[("PostgreSQL<br/>Supabase")]
+
+    subgraph AGENT ["🤖 Agent Orchestrator"]
+        direction LR
+        T1[scan_repository] --> T2[extract_functions] --> T3[detect_edge_cases]
+        T3 --> T4[generate_tests] --> T5[execute_tests] --> T6[compute_coverage]
+    end
+
+    BE --> AGENT
+    T4 -->|prompt| GROQ["Groq LLM"]
+    T5 -->|isolated| SB["pytest sandbox<br/>+ coverage"]
+    GH["GitHub Actions"] -->|eval + PR test-gen| BE
 ```
-Next.js (Vercel)  →  FastAPI + BackgroundTasks (Render)  →  PostgreSQL (Supabase)
-                                  │
-                                  └─→ Groq LLM (batched requests)
-```
 
-Async work uses FastAPI `BackgroundTasks` in-process. Progress is written to the
-job row and polled by the client. See [ARCHITECTURE.md](ARCHITECTURE.md).
+Async work runs via FastAPI **`BackgroundTasks`** in-process — **no Docker, Redis, Celery, or
+paid infrastructure**. Full write-up in [ARCHITECTURE.md](ARCHITECTURE.md).
 
-## Tech stack
+---
+
+## 🧰 Tech stack
 
 | Layer | Tech |
 |---|---|
-| Frontend | Next.js 16 (App Router), React 18, TypeScript, Tailwind CSS, lucide-react |
-| Backend | FastAPI, SQLAlchemy 2, Pydantic v2, Uvicorn |
-| LLM | Groq (`openai/gpt-oss-120b` / `llama-3.1-8b-instant`) |
-| Database | PostgreSQL (Supabase or Render); SQLite for local/dev |
-| CI | GitHub Actions (pytest + lint + build) |
+| **Frontend** | Next.js 16 (App Router) · React 18 · TypeScript · Tailwind CSS · lucide-react |
+| **Backend** | FastAPI · SQLAlchemy 2 · Pydantic v2 · Uvicorn |
+| **LLM** | Groq (`openai/gpt-oss-120b` / `llama-3.1-8b-instant`) |
+| **Database** | PostgreSQL (Supabase / Render) · SQLite for local dev |
+| **CI/CD** | GitHub Actions · Vercel · Render |
 
-## Folder structure
+---
 
-```
-backend/
-  app/
-    main.py              FastAPI app, CORS, health, startup reconciliation
-    core/                config, in-memory rate limiter
-    db/database.py       engine + session
-    models/              AnalysisJob (single table, JSON results)
-    schemas/             request/response models
-    api/                 analysis routes (+ aggregate router)
-    services/            background analysis worker
-    agents/              orchestrator, repo_scanner, edge_case_finder, llm_test_generator
-  tests/                 pytest suite
-frontend/
-  src/
-    app/                 landing, /analyze, /results/[jobId], /dashboard
-    components/          nav, footer, theme-toggle, ui/*
-    lib/                 api client, types, highlight, zip, utils
-```
+## ⚡ Quick start
 
-## Local setup
+<details open>
+<summary><b>Backend</b></summary>
 
-**Backend**
 ```bash
 cd backend
 python3 -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env      # leave GROQ_API_KEY empty for offline "demo" mode
-uvicorn app.main:app --reload    # http://localhost:8000  (docs at /docs)
+cp .env.example .env          # leave GROQ_API_KEY empty for offline "demo" mode
+uvicorn app.main:app --reload # → http://localhost:8000  (docs at /docs)
 ```
+</details>
 
-**Frontend**
+<details>
+<summary><b>Frontend</b></summary>
+
 ```bash
 cd frontend
 npm install
-cp .env.example .env.local   # set NEXT_PUBLIC_API_URL=http://localhost:8000
-npm run dev                  # http://localhost:3000
+cp .env.example .env.local    # set NEXT_PUBLIC_API_URL=http://localhost:8000
+npm run dev                   # → http://localhost:3000
 ```
+</details>
 
-## Environment variables
+<details>
+<summary><b>Environment variables</b></summary>
 
-**Backend** (`backend/.env`): `DATABASE_URL`, `GROQ_API_KEY`, `LLM_PROVIDER`,
-`GROQ_MODEL`, `CORS_ORIGINS`, `ENVIRONMENT` (optional: `LLM_BATCH_SIZE`,
-`MAX_FILE_SIZE`, `MAX_FUNCTIONS_TO_ANALYZE`).
+**Backend** (`backend/.env`): `DATABASE_URL`, `GROQ_API_KEY`, `LLM_PROVIDER`, `GROQ_MODEL`,
+`CORS_ORIGINS`, `ENVIRONMENT` · optional: `LLM_BATCH_SIZE`, `MAX_FILE_SIZE`, `MAX_FUNCTIONS_TO_ANALYZE`
 
-**Frontend** (`frontend/.env.local`): `NEXT_PUBLIC_API_URL`.
+**Frontend** (`frontend/.env.local`): `NEXT_PUBLIC_API_URL`
+</details>
 
-## API
+---
+
+## 📡 API
 
 | Method | Path | Purpose |
 |---|---|---|
-| POST | `/api/v1/analysis/start` | Analyze a snippet or GitHub URL |
-| POST | `/api/v1/analysis/upload` | Analyze an uploaded ZIP |
-| GET | `/api/v1/analysis` | List recent analyses |
-| GET | `/api/v1/analysis/{job_id}` | Poll status/stage/results |
-| DELETE | `/api/v1/analysis/{job_id}` | Delete a job |
-| GET | `/health` | Health check |
+| `POST` | `/api/v1/analysis/start` | Analyze a snippet or GitHub URL |
+| `POST` | `/api/v1/analysis/upload` | Analyze an uploaded ZIP |
+| `GET` | `/api/v1/analysis` | List recent analyses |
+| `GET` | `/api/v1/analysis/{job_id}` | Poll status / stage / results |
+| `DELETE` | `/api/v1/analysis/{job_id}` | Delete a job |
+| `GET` | `/health` | Health check |
 
-## Deployment
+Interactive docs: **[/docs](https://automated-test-case-generator-agent.onrender.com/docs)**
 
-- **Database:** create a Supabase/Render Postgres, copy the pooled URL into `DATABASE_URL`.
-- **Backend (Render Web Service):** root `backend/`, build `pip install -r requirements.txt`,
-  start `uvicorn app.main:app --host 0.0.0.0 --port $PORT`. Set env vars from `.env.example`.
-- **Frontend (Vercel):** root `frontend/`, set `NEXT_PUBLIC_API_URL` to the Render URL,
-  then add that Vercel domain to the backend's `CORS_ORIGINS`.
+---
 
-## Screenshots
-
-<!-- Add screenshots of the landing page, analyze flow, and results page here -->
-| Landing | Analyze | Results |
-|---|---|---|
-| _screenshot_ | _screenshot_ | _screenshot_ |
-
-## Tests & evaluation
+## 🧪 Tests & evaluation
 
 ```bash
-cd backend && pytest tests/ -v          # unit + integration tests
+cd backend && pytest tests/ -v          # unit + integration tests (24)
 cd backend && python -m evals.run_eval  # score the generator on a golden dataset
 cd frontend && npm run lint && npm run build
 ```
 
-The **evaluation harness** (`backend/evals/`) runs the generator against a
-golden set of functions and scores it on relevance, generation rate, test
-pass-rate, and coverage — and runs in CI on every push. With a `GROQ_API_KEY`
-set it reports full pass-rate/coverage; offline it validates the pipeline.
+The **evaluation harness** (`backend/evals/`) scores the generator on **relevance, generation
+rate, pass-rate, and coverage** against a golden dataset — and runs in CI on every push.
+The **`pr-test-gen`** workflow generates tests for a PR's changed files and posts them as a
+**PR comment** (add a `GROQ_API_KEY` repo secret for real output).
 
-### CI / PR integration
+---
 
-A **CLI** (`python -m app.cli <files> --out report.md`) generates tests for any
-Python files and emits a Markdown report. The **`PR Test Generation`** workflow
-(`.github/workflows/pr-test-gen.yml`) runs it on a pull request's changed
-`.py` files and posts the generated tests + pass-rate + coverage as a PR
-comment. Add a `GROQ_API_KEY` repository secret for real LLM output.
+## 📁 Project structure
 
-## Future scope
+```
+backend/
+  app/
+    main.py            FastAPI app · CORS · health · startup reconciliation
+    core/              config · in-memory rate limiter
+    db/                engine + session
+    models/            AnalysisJob (single table, JSON results)
+    api/               analysis routes
+    services/          background analysis worker
+    agents/            orchestrator · repo_scanner · edge_case_finder ·
+                       llm_test_generator · agent_trace
+    cli.py             CI/PR test-generation entrypoint
+  evals/               golden dataset + scorer
+  tests/               pytest suite
+frontend/
+  src/app/             landing · /analyze · /results/[jobId] · /dashboard
+  src/components/       nav · footer · theme-toggle · ui/*
+  src/lib/             api client · types · highlight · zip · utils
+```
 
-- Containerized sandbox for executing arbitrary-dependency repos
-- JavaScript/TypeScript test generation & execution
-- Mutation testing and coverage heatmaps
-- Multi-file dependency resolution
-- Optional accounts + persistent per-user history
+---
 
-## License
+## 🗺️ Roadmap
 
-MIT © Team Osaka Vise — built for the Capgemini Exceller AgentifAI Buildathon.
+- [ ] Containerized sandbox for arbitrary-dependency repos
+- [ ] JavaScript / TypeScript test generation & execution
+- [ ] Mutation testing & coverage heatmaps
+- [ ] Multi-file dependency resolution
+- [ ] Optional accounts + persistent per-user history
+
+---
+
+## 👥 Team — Osaka Vise
+
+| Name | Role |
+|---|---|
+| **Aaron Rao** | AI Testing & Validation |
+| **Aditi Karn** | System Architecture Lead |
+| **Aryan Gupta** | UI/UX Developer |
+| **Nitin Chugh** | Backend & API Engineer |
+| **Vidushi Srivastava** | Presentation Lead |
+
+---
+
+<div align="center">
+
+**MIT Licensed** · Built with ❤️ for the Capgemini Exceller AgentifAI Buildathon 2026
+
+⭐ Star the repo if you found it useful!
+
+</div>
